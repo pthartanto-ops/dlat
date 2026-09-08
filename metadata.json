@@ -1,0 +1,6 @@
+{
+  "name": "PLN Tanah Dashboard",
+  "description": "Dashboard Monitoring Aset dan Sertifikasi Tanah UPT PLN interaktif dengan ringkasan tahapan BPN, GIS peta sebaran, dan integrasi Google Drive.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

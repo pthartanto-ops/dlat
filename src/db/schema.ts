@@ -1,0 +1,55 @@
+import { pgTable, serial, text, timestamp, integer, boolean } from 'drizzle-orm/pg-core';
+
+// Users table (UID from Firebase Auth)
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  uid: text('uid').notNull().unique(),
+  email: text('email').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Assets table for Persil Tanah PLN UPT Madiun
+export const assets = pgTable('assets', {
+  id: text('id').primaryKey(),
+  alasHak: text('alas_hak').notNull(), // 'SPH' | 'Tanpa SPH'
+  tahapan: integer('tahapan').notNull().default(0),
+  statusDisplay: text('status_display').notNull(),
+  upt: text('upt').notNull().default('UPT MADIUN'),
+  ultg: text('ultg').notNull(),
+  penghantar: text('penghantar').notNull(),
+  asetLapangan: text('aset_lapangan').notNull(),
+  desa: text('desa').notNull().default(''),
+  kecamatan: text('kecamatan').notNull().default(''),
+  bpn: text('bpn').notNull().default(''),
+  luas: integer('luas').notNull().default(0),
+  persil: text('persil').default(''),
+  noSertifikat: text('no_sertifikat').default('-'),
+  asset: text('asset').default('-'),
+  nib: text('nib').default('-'),
+  sps1No: text('sps1_no').default(''),
+  sps1Amount: integer('sps1_amount').default(0),
+  sps1IsPaid: boolean('sps1_is_paid').default(false),
+  sps1PaymentDate: text('sps1_payment_date').default(''),
+  sps1ReceiptNumber: text('sps1_receipt_number').default(''),
+  sps2No: text('sps2_no').default(''),
+  sps2Amount: integer('sps2_amount').default(0),
+  sps2IsPaid: boolean('sps2_is_paid').default(false),
+  sps2PaymentDate: text('sps2_payment_date').default(''),
+  sps2ReceiptNumber: text('sps2_receipt_number').default(''),
+  sps3No: text('sps3_no').default(''),
+  sps3Amount: integer('sps3_amount').default(0),
+  sps3IsPaid: boolean('sps3_is_paid').default(false),
+  sps3PaymentDate: text('sps3_payment_date').default(''),
+  sps3ReceiptNumber: text('sps3_receipt_number').default(''),
+  totalPnbp: integer('total_pnbp').default(0),
+  tanggalTerbit: text('tanggal_terbit').default('-'),
+  tanggalAkhir: text('tanggal_akhir').default('-'),
+  kategori: text('kategori').notNull().default('TOWER'),
+  tahun: integer('tahun').notNull().default(2024),
+  kendala: text('kendala').default(''),
+  koordinat: text('koordinat').default(''),
+  pic: text('pic').default(''),
+  catatan: text('catatan').default(''),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
