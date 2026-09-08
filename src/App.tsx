@@ -21,6 +21,12 @@ import {
   clearAllAssetsApi,
   seedSampleAssetsApi,
 } from './utils/apiClient';
+import {
+  fetchTargetSettingsFromSupabase,
+  saveTargetSettingsToSupabase,
+  fetchPicOfficersFromSupabase,
+  savePicOfficersToSupabase,
+} from './services/supabaseClient';
 import { UptDashboardView } from './components/UptDashboardView';
 import { UltgDashboardView } from './components/UltgDashboardView';
 import { GlobalReportView } from './components/GlobalReportView';
@@ -151,20 +157,33 @@ export default function App() {
     }
   };
 
-  // Load assets from database on startup
+  // Load assets & cloud target settings from database on startup
   useEffect(() => {
     let isSubscribed = true;
     setIsLoadingData(true);
-    fetchAssetsFromApi()
-      .then((loadedAssets) => {
-        if (isSubscribed) {
-          const validList = Array.isArray(loadedAssets) ? loadedAssets : [];
-          setAssets(validList);
-          setUnitSummaries(recalculateAllUnitSummaries(validList, undefined, targetSettings.categoryTargets));
+    Promise.all([
+      fetchAssetsFromApi(),
+      fetchTargetSettingsFromSupabase(),
+      fetchPicOfficersFromSupabase(),
+    ])
+      .then(([loadedAssets, remoteTargetSettings, remotePicOfficers]) => {
+        if (!isSubscribed) return;
+        const validList = Array.isArray(loadedAssets) ? loadedAssets : [];
+        setAssets(validList);
+
+        let activeTargets = targetSettings;
+        if (remoteTargetSettings) {
+          activeTargets = remoteTargetSettings;
+          setTargetSettings(remoteTargetSettings);
         }
+        if (remotePicOfficers) {
+          setPicOfficers(remotePicOfficers);
+        }
+
+        setUnitSummaries(recalculateAllUnitSummaries(validList, undefined, activeTargets.categoryTargets));
       })
       .catch((err) => {
-        console.warn('Perhatian saat memuat aset:', err);
+        console.warn('Perhatian saat memuat aset/target:', err);
         if (isSubscribed) {
           setAssets([]);
           setUnitSummaries(recalculateAllUnitSummaries([], undefined, targetSettings.categoryTargets));
@@ -185,14 +204,28 @@ export default function App() {
     }, 3500);
   };
 
-  // Reload all assets helper
+  // Reload all assets and target settings helper
   const reloadAllAssets = async () => {
     setIsLoadingData(true);
     try {
-      const loadedAssets = await fetchAssetsFromApi();
+      const [loadedAssets, remoteTargetSettings, remotePicOfficers] = await Promise.all([
+        fetchAssetsFromApi(),
+        fetchTargetSettingsFromSupabase(),
+        fetchPicOfficersFromSupabase(),
+      ]);
       const validList = Array.isArray(loadedAssets) ? loadedAssets : [];
       setAssets(validList);
-      setUnitSummaries(recalculateAllUnitSummaries(validList, undefined, targetSettings.categoryTargets));
+
+      let activeTargets = targetSettings;
+      if (remoteTargetSettings) {
+        activeTargets = remoteTargetSettings;
+        setTargetSettings(remoteTargetSettings);
+      }
+      if (remotePicOfficers) {
+        setPicOfficers(remotePicOfficers);
+      }
+
+      setUnitSummaries(recalculateAllUnitSummaries(validList, undefined, activeTargets.categoryTargets));
     } catch (err) {
       console.warn('Perhatian saat memuat aset:', err);
     } finally {
@@ -431,8 +464,11 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+    saveTargetSettingsToSupabase(newSettings).catch((err) => {
+      console.warn('Gagal sinkron target ke Supabase:', err);
+    });
     setUnitSummaries(recalculateAllUnitSummaries(assets, undefined, newSettings.categoryTargets));
-    showToast('Target sertifikasi berhasil disimpan & dashboard KPI diperbarui!');
+    showToast('Target sertifikasi berhasil disimpan & tersinkronisasi ke cloud database!');
   };
 
   // Save PIC officers list
@@ -443,7 +479,10 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    showToast('Daftar Petugas PIC Pokja Sertifikasi berhasil diperbarui!');
+    savePicOfficersToSupabase(newOfficers).catch((err) => {
+      console.warn('Gagal sinkron PIC ke Supabase:', err);
+    });
+    showToast('Daftar Petugas PIC Pokja Sertifikasi berhasil diperbarui & tersinkronisasi ke cloud!');
   };
 
   // Update single asset PIC
@@ -706,12 +745,24 @@ export default function App() {
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onRefresh={() => {
           setIsLoadingData(true);
-          fetchAssetsFromApi()
-            .then((loaded) => {
+          Promise.all([
+            fetchAssetsFromApi(),
+            fetchTargetSettingsFromSupabase(),
+            fetchPicOfficersFromSupabase(),
+          ])
+            .then(([loaded, remoteTargets, remotePics]) => {
               const list = Array.isArray(loaded) ? loaded : [];
               setAssets(list);
-              setUnitSummaries(recalculateAllUnitSummaries(list));
-              showToast('Data berhasil disinkronisasi ulang dengan database Supabase PostgreSQL');
+              let activeTargets = targetSettings;
+              if (remoteTargets) {
+                activeTargets = remoteTargets;
+                setTargetSettings(remoteTargets);
+              }
+              if (remotePics) {
+                setPicOfficers(remotePics);
+              }
+              setUnitSummaries(recalculateAllUnitSummaries(list, undefined, activeTargets.categoryTargets));
+              showToast('Data & target berhasil disinkronisasi ulang dengan database Supabase');
             })
             .catch((err) => {
               console.error(err);

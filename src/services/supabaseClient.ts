@@ -1,6 +1,9 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { AssetItem } from '../types';
+import { AssetItem, CertificationTargetSettings, PicOfficer } from '../types';
 import initialAssetsData from '../data/initialAssets.json';
+
+export const SUPABASE_TARGET_CONFIG_ID = '__CONFIG_TARGET_SETTINGS__';
+export const SUPABASE_PIC_CONFIG_ID = '__CONFIG_PIC_OFFICERS__';
 
 // Get Supabase credentials from client environment or fallback to user project
 const envUrl = (
@@ -114,6 +117,7 @@ export async function checkSupabaseTableClient(): Promise<SupabaseTableStatus> {
     const { data, count, error } = await client
       .from('assets')
       .select('id', { count: 'exact' })
+      .not('id', 'like', '__CONFIG_%')
       .limit(1);
 
     if (error) {
@@ -263,13 +267,14 @@ export function assetItemToSupabaseRow(item: AssetItem): any {
 }
 
 /**
- * Fetches all assets directly from Supabase via client SDK
+ * Fetches all assets directly from Supabase via client SDK (excluding config rows)
  */
 export async function fetchAssetsDirectFromSupabase(): Promise<AssetItem[]> {
   const client = getSupabaseClient();
   const { data, error } = await client
     .from('assets')
     .select('*')
+    .not('id', 'like', '__CONFIG_%')
     .order('id', { ascending: true });
 
   if (error) {
@@ -277,9 +282,129 @@ export async function fetchAssetsDirectFromSupabase(): Promise<AssetItem[]> {
   }
 
   if (Array.isArray(data)) {
-    return data.map(supabaseRowToAssetItem);
+    return data
+      .filter((r) => !r.id.startsWith('__CONFIG_'))
+      .map(supabaseRowToAssetItem);
   }
   return [];
+}
+
+/**
+ * Fetches certification target settings directly from Supabase
+ */
+export async function fetchTargetSettingsFromSupabase(): Promise<CertificationTargetSettings | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('assets')
+      .select('catatan')
+      .eq('id', SUPABASE_TARGET_CONFIG_ID)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Supabase target query notice:', error.message);
+      return null;
+    }
+
+    if (data?.catatan) {
+      const parsed = JSON.parse(data.catatan) as CertificationTargetSettings;
+      if (parsed && typeof parsed.uptTarget === 'number') {
+        try {
+          localStorage.setItem('pln_target_settings', JSON.stringify(parsed));
+        } catch (_) {}
+        return parsed;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn('Failed to parse target settings from Supabase:', err);
+    return null;
+  }
+}
+
+/**
+ * Saves certification target settings directly to Supabase
+ */
+export async function saveTargetSettingsToSupabase(settings: CertificationTargetSettings): Promise<boolean> {
+  try {
+    const client = getSupabaseClient();
+    try {
+      localStorage.setItem('pln_target_settings', JSON.stringify(settings));
+    } catch (_) {}
+
+    const { error } = await client.from('assets').upsert(
+      {
+        id: SUPABASE_TARGET_CONFIG_ID,
+        catatan: JSON.stringify(settings),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' }
+    );
+
+    if (error) {
+      console.warn('Failed to save target settings to Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Failed to save target settings to Supabase:', err);
+    return false;
+  }
+}
+
+/**
+ * Fetches PIC officers master list directly from Supabase
+ */
+export async function fetchPicOfficersFromSupabase(): Promise<PicOfficer[] | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('assets')
+      .select('catatan')
+      .eq('id', SUPABASE_PIC_CONFIG_ID)
+      .maybeSingle();
+
+    if (error) return null;
+
+    if (data?.catatan) {
+      const parsed = JSON.parse(data.catatan) as PicOfficer[];
+      if (Array.isArray(parsed)) {
+        try {
+          localStorage.setItem('pln_pic_officers', JSON.stringify(parsed));
+        } catch (_) {}
+        return parsed;
+      }
+    }
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Saves PIC officers master list directly to Supabase
+ */
+export async function savePicOfficersToSupabase(officers: PicOfficer[]): Promise<boolean> {
+  try {
+    const client = getSupabaseClient();
+    try {
+      localStorage.setItem('pln_pic_officers', JSON.stringify(officers));
+    } catch (_) {}
+
+    const { error } = await client.from('assets').upsert(
+      {
+        id: SUPABASE_PIC_CONFIG_ID,
+        catatan: JSON.stringify(officers),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' }
+    );
+
+    if (error) return false;
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 /**
@@ -368,6 +493,20 @@ export async function syncAssetsToSupabaseClient(assets?: AssetItem[]): Promise<
         return { success: false, count: 0, error: error.message };
       }
     }
+    // Also ensure target settings & PIC officers are synchronized
+    try {
+      const localTargetRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('pln_target_settings') : null;
+      if (localTargetRaw) {
+        const localTarget = JSON.parse(localTargetRaw);
+        await saveTargetSettingsToSupabase(localTarget);
+      }
+      const localPicRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('pln_pic_officers') : null;
+      if (localPicRaw) {
+        const localPic = JSON.parse(localPicRaw);
+        await savePicOfficersToSupabase(localPic);
+      }
+    } catch (_) {}
+
     return { success: true, count: rows.length };
   } catch (err: any) {
     return { success: false, count: 0, error: err.message || 'Gagal menyinkronkan data ke Supabase' };
