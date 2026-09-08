@@ -1,4 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { AssetItem } from '../types';
+import initialAssetsData from '../data/initialAssets.json';
 
 // Get Supabase credentials from client environment or fallback to user project
 const envUrl = (
@@ -44,6 +46,14 @@ export interface SupabaseHealthResult {
   url: string;
   projectRef: string;
   version?: string;
+  error?: string;
+}
+
+export interface SupabaseTableStatus {
+  connected: boolean;
+  tableExists: boolean;
+  rowCount: number;
+  url: string;
   error?: string;
 }
 
@@ -94,3 +104,273 @@ export async function checkSupabaseConnection(): Promise<SupabaseHealthResult> {
     };
   }
 }
+
+/**
+ * Directly checks Supabase table existence & row count from the browser
+ */
+export async function checkSupabaseTableClient(): Promise<SupabaseTableStatus> {
+  const client = getSupabaseClient();
+  try {
+    const { data, count, error } = await client
+      .from('assets')
+      .select('id', { count: 'exact' })
+      .limit(1);
+
+    if (error) {
+      if (
+        error.code === 'PGRST205' ||
+        error.message?.includes('Could not find the table') ||
+        error.message?.includes('schema cache')
+      ) {
+        return {
+          connected: true,
+          tableExists: false,
+          rowCount: 0,
+          url: SUPABASE_URL,
+          error: 'Tabel "public.assets" belum dibuat di Supabase.',
+        };
+      }
+      return {
+        connected: false,
+        tableExists: false,
+        rowCount: 0,
+        url: SUPABASE_URL,
+        error: error.message,
+      };
+    }
+
+    return {
+      connected: true,
+      tableExists: true,
+      rowCount: count ?? (data ? data.length : 0),
+      url: SUPABASE_URL,
+    };
+  } catch (err: any) {
+    return {
+      connected: false,
+      tableExists: false,
+      rowCount: 0,
+      url: SUPABASE_URL,
+      error: err.message || 'Gagal menghubungi Supabase',
+    };
+  }
+}
+
+/**
+ * Converts a Supabase database row (snake_case) to client AssetItem
+ */
+export function supabaseRowToAssetItem(row: any): AssetItem {
+  return {
+    id: row.id,
+    alasHak: (row.alas_hak || '') as any,
+    tahapan: Number(row.tahapan ?? 0),
+    statusDisplay: row.status_display || '-',
+    upt: row.upt || 'UPT MADIUN',
+    ultg: row.ultg || '',
+    penghantar: row.penghantar || '',
+    asetLapangan: row.aset_lapangan || '',
+    desa: row.desa || '',
+    kecamatan: row.kecamatan || '',
+    bpn: row.bpn || '',
+    luas: Number(row.luas ?? 0),
+    persil: row.persil || '',
+    noSertifikat: row.no_sertifikat || '-',
+    asset: row.asset || '-',
+    nib: row.nib || '-',
+    sps1: {
+      spsNo: row.sps1_no || '',
+      tanggalSps: row.sps1_payment_date || '',
+      amount: Number(row.sps1_amount ?? 0),
+      isPaid: Boolean(row.sps1_is_paid || (row.sps1_payment_date && row.sps1_payment_date !== '-')),
+      paymentDate: row.sps1_payment_date || '',
+      receiptNumber: row.sps1_receipt_number || '',
+    },
+    sps2: {
+      spsNo: row.sps2_no || '',
+      tanggalSps: row.sps2_payment_date || '',
+      amount: Number(row.sps2_amount ?? 0),
+      isPaid: Boolean(row.sps2_is_paid || (row.sps2_payment_date && row.sps2_payment_date !== '-')),
+      paymentDate: row.sps2_payment_date || '',
+      receiptNumber: row.sps2_receipt_number || '',
+    },
+    sps3: {
+      spsNo: row.sps3_no || '',
+      tanggalSps: row.sps3_payment_date || '',
+      amount: Number(row.sps3_amount ?? 0),
+      isPaid: Boolean(row.sps3_is_paid || (row.sps3_payment_date && row.sps3_payment_date !== '-')),
+      paymentDate: row.sps3_payment_date || '',
+      receiptNumber: row.sps3_receipt_number || '',
+    },
+    totalPnbp: Number(row.total_pnbp ?? 0),
+    tanggalTerbit: row.tanggal_terbit || '-',
+    tanggalAkhir: row.tanggal_akhir || '-',
+    kategori: row.kategori || 'TOWER',
+    tahun: Number(row.tahun ?? 2024),
+    kendala: row.kendala || '',
+    koordinat: row.koordinat || '',
+    pic: row.pic || '',
+    catatan: row.catatan || '',
+  };
+}
+
+/**
+ * Converts client AssetItem to Supabase row format (snake_case)
+ */
+export function assetItemToSupabaseRow(item: AssetItem): any {
+  return {
+    id: item.id,
+    alas_hak: item.alasHak || '',
+    tahapan: item.tahapan ?? 0,
+    status_display: item.statusDisplay || '-',
+    upt: item.upt || 'UPT MADIUN',
+    ultg: item.ultg || '',
+    penghantar: item.penghantar || '',
+    aset_lapangan: item.asetLapangan || '',
+    desa: item.desa || '',
+    kecamatan: item.kecamatan || '',
+    bpn: item.bpn || '',
+    luas: item.luas ?? 0,
+    persil: item.persil || '',
+    no_sertifikat: item.noSertifikat || '-',
+    asset: item.asset || '-',
+    nib: item.nib || '-',
+    sps1_no: item.sps1?.spsNo || '',
+    sps1_amount: item.sps1?.amount ?? 0,
+    sps1_is_paid: Boolean(item.sps1?.isPaid),
+    sps1_payment_date: item.sps1?.paymentDate || '',
+    sps1_receipt_number: item.sps1?.receiptNumber || '',
+    sps2_no: item.sps2?.spsNo || '',
+    sps2_amount: item.sps2?.amount ?? 0,
+    sps2_is_paid: Boolean(item.sps2?.isPaid),
+    sps2_payment_date: item.sps2?.paymentDate || '',
+    sps2_receipt_number: item.sps2?.receiptNumber || '',
+    sps3_no: item.sps3?.spsNo || '',
+    sps3_amount: item.sps3?.amount ?? 0,
+    sps3_is_paid: Boolean(item.sps3?.isPaid),
+    sps3_payment_date: item.sps3?.paymentDate || '',
+    sps3_receipt_number: item.sps3?.receiptNumber || '',
+    total_pnbp: item.totalPnbp ?? 0,
+    tanggal_terbit: item.tanggalTerbit || '-',
+    tanggal_akhir: item.tanggalAkhir || '-',
+    kategori: item.kategori || 'TOWER',
+    tahun: item.tahun ?? 2024,
+    kendala: item.kendala || '',
+    koordinat: item.koordinat || '',
+    pic: item.pic || '',
+    catatan: item.catatan || '',
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Fetches all assets directly from Supabase via client SDK
+ */
+export async function fetchAssetsDirectFromSupabase(): Promise<AssetItem[]> {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from('assets')
+    .select('*')
+    .order('id', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map(supabaseRowToAssetItem);
+  }
+  return [];
+}
+
+/**
+ * Upserts a single asset directly to Supabase
+ */
+export async function upsertAssetDirectToSupabase(asset: AssetItem): Promise<AssetItem> {
+  const client = getSupabaseClient();
+  const row = assetItemToSupabaseRow(asset);
+  const { error } = await client.from('assets').upsert(row, { onConflict: 'id' });
+  if (error) {
+    throw error;
+  }
+  return asset;
+}
+
+/**
+ * Bulk upserts multiple assets directly to Supabase
+ */
+export async function bulkUpsertAssetsDirectToSupabase(assets: AssetItem[]): Promise<number> {
+  const client = getSupabaseClient();
+  const rows = assets.map(assetItemToSupabaseRow);
+  for (let i = 0; i < rows.length; i += 50) {
+    const chunk = rows.slice(i, i + 50);
+    const { error } = await client.from('assets').upsert(chunk, { onConflict: 'id' });
+    if (error) throw error;
+  }
+  return assets.length;
+}
+
+/**
+ * Deletes a single asset directly from Supabase
+ */
+export async function deleteAssetDirectFromSupabase(id: string): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client.from('assets').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/**
+ * Deletes multiple assets directly from Supabase
+ */
+export async function deleteMultipleAssetsDirectFromSupabase(ids: string[]): Promise<number> {
+  const client = getSupabaseClient();
+  const { error } = await client.from('assets').delete().in('id', ids);
+  if (error) throw error;
+  return ids.length;
+}
+
+/**
+ * Clears all assets directly from Supabase
+ */
+export async function clearAllAssetsDirectFromSupabase(): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client.from('assets').delete().neq('id', '___PLACEHOLDER___');
+  if (error) throw error;
+}
+
+/**
+ * Syncs / seeds assets directly to Supabase from the client without requiring backend server
+ */
+export async function syncAssetsToSupabaseClient(assets?: AssetItem[]): Promise<{
+  success: boolean;
+  count: number;
+  error?: string;
+}> {
+  const client = getSupabaseClient();
+  const listToSync = assets && assets.length > 0 ? assets : (initialAssetsData as unknown as AssetItem[]);
+  const rows = listToSync.map(assetItemToSupabaseRow);
+
+  try {
+    for (let i = 0; i < rows.length; i += 50) {
+      const chunk = rows.slice(i, i + 50);
+      const { error } = await client.from('assets').upsert(chunk, { onConflict: 'id' });
+      if (error) {
+        if (
+          error.code === 'PGRST205' ||
+          error.message?.includes('schema cache') ||
+          error.message?.includes('Could not find the table')
+        ) {
+          return {
+            success: false,
+            count: 0,
+            error: 'Tabel "public.assets" belum dibuat di Supabase. Silakan jalankan Skema SQL di SQL Editor Supabase terlebih dahulu.',
+          };
+        }
+        return { success: false, count: 0, error: error.message };
+      }
+    }
+    return { success: true, count: rows.length };
+  } catch (err: any) {
+    return { success: false, count: 0, error: err.message || 'Gagal menyinkronkan data ke Supabase' };
+  }
+}
+

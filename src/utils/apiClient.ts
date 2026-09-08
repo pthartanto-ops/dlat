@@ -1,9 +1,18 @@
 import { AssetItem } from '../types';
-import { generateRealisticAssets } from '../data/mockData';
+import initialAssetsData from '../data/initialAssets.json';
+import {
+  fetchAssetsDirectFromSupabase,
+  upsertAssetDirectToSupabase,
+  bulkUpsertAssetsDirectToSupabase,
+  deleteAssetDirectFromSupabase,
+  deleteMultipleAssetsDirectFromSupabase,
+  clearAllAssetsDirectFromSupabase,
+  syncAssetsToSupabaseClient,
+} from '../services/supabaseClient';
 
 const CACHE_KEY = 'pln_cached_assets_backup';
 
-function getLocalCachedAssets(): AssetItem[] {
+export function getLocalCachedAssets(): AssetItem[] {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (raw) {
@@ -16,20 +25,46 @@ function getLocalCachedAssets(): AssetItem[] {
   return [];
 }
 
-function setLocalCachedAssets(assets: AssetItem[]) {
+export function setLocalCachedAssets(assets: AssetItem[]) {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(assets));
   } catch (_) {}
 }
 
 /**
- * Fetches assets from /api/assets with automatic retries, caching, and fallback resilience
+ * Safely parses a response as JSON if and only if the content-type is application/json
  */
-export async function fetchAssetsFromApi(retries = 3): Promise<AssetItem[]> {
+async function safeJsonParse(res: Response): Promise<any | null> {
+  try {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return await res.json();
+    }
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * Fetches assets with direct Supabase priority, resilient server API fallback,
+ * and guaranteed initial 91-asset fallback for static deployments (Vercel, Cloud Run, etc.)
+ */
+export async function fetchAssetsFromApi(retries = 2): Promise<AssetItem[]> {
+  // 1. Primary: Direct query to Supabase from the client (works on Vercel, localhost, Cloud Run)
+  try {
+    const supabaseData = await fetchAssetsDirectFromSupabase();
+    if (Array.isArray(supabaseData) && supabaseData.length > 0) {
+      setLocalCachedAssets(supabaseData);
+      return supabaseData;
+    }
+  } catch (err) {
+    console.info('Direct Supabase fetch fallback to API/Cache:', err);
+  }
+
+  // 2. Secondary: If direct Supabase failed or table empty, try backend API if available
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
 
       const res = await fetch('/api/assets', {
         signal: controller.signal,
@@ -37,32 +72,34 @@ export async function fetchAssetsFromApi(retries = 3): Promise<AssetItem[]> {
       });
       clearTimeout(timeoutId);
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      if (res.ok) {
+        const json = await safeJsonParse(res);
+        if (json && json.success && Array.isArray(json.data) && json.data.length > 0) {
+          setLocalCachedAssets(json.data);
+          return json.data;
+        }
       }
-
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        setLocalCachedAssets(json.data);
-        return json.data;
-      }
-    } catch (err: any) {
-      // If server is restarting or network hiccup, retry
-      if (attempt < retries) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 400));
-        continue;
-      }
-      console.warn('Notice: Server API momentarily unreachable. Using local cache.');
+    } catch (_) {
+      // Backend not running (e.g. static host on Vercel)
     }
   }
 
-  // Resilient fallback: return cached assets if available
+  // 3. Tertiary: Return local cache if populated
   const cached = getLocalCachedAssets();
-  return cached;
+  if (cached.length > 0) {
+    return cached;
+  }
+
+  // 4. Quaternary: Guaranteed PLN UPT Madiun 91 data persil fallback
+  const fallbackAssets = (initialAssetsData as unknown as AssetItem[]) || [];
+  if (fallbackAssets.length > 0) {
+    setLocalCachedAssets(fallbackAssets);
+  }
+  return fallbackAssets;
 }
 
 export async function saveAssetToApi(asset: AssetItem): Promise<AssetItem> {
-  // Always update local cache first
+  // Always update local cache immediately
   const current = getLocalCachedAssets();
   const index = current.findIndex((a) => a.id === asset.id);
   if (index >= 0) {
@@ -72,6 +109,14 @@ export async function saveAssetToApi(asset: AssetItem): Promise<AssetItem> {
   }
   setLocalCachedAssets(current);
 
+  // 1. Direct Supabase save
+  try {
+    await upsertAssetDirectToSupabase(asset);
+  } catch (supabaseErr) {
+    console.warn('Direct Supabase save delayed, trying backend API:', supabaseErr);
+  }
+
+  // 2. Secondary backend sync (if Express server exists)
   try {
     const res = await fetch('/api/assets', {
       method: 'POST',
@@ -79,14 +124,13 @@ export async function saveAssetToApi(asset: AssetItem): Promise<AssetItem> {
       body: JSON.stringify(asset),
     });
     if (res.ok) {
-      const json = await res.json();
-      if (json.success && json.data) {
+      const json = await safeJsonParse(res);
+      if (json && json.success && json.data) {
         return json.data;
       }
     }
-  } catch (err) {
-    console.warn('Server save delayed, saved to local cache:', err);
-  }
+  } catch (_) {}
+
   return asset;
 }
 
@@ -102,6 +146,14 @@ export async function bulkSaveAssetsToApi(assets: AssetItem[]): Promise<number> 
   const merged = Array.from(map.values());
   setLocalCachedAssets(merged);
 
+  // 1. Direct Supabase bulk upsert
+  try {
+    await bulkUpsertAssetsDirectToSupabase(assets);
+  } catch (supabaseErr) {
+    console.warn('Direct Supabase bulk save delayed:', supabaseErr);
+  }
+
+  // 2. Secondary backend sync
   try {
     const res = await fetch('/api/assets/bulk', {
       method: 'POST',
@@ -109,14 +161,13 @@ export async function bulkSaveAssetsToApi(assets: AssetItem[]): Promise<number> 
       body: JSON.stringify({ assets }),
     });
     if (res.ok) {
-      const json = await res.json();
-      if (json.success && typeof json.count === 'number') {
+      const json = await safeJsonParse(res);
+      if (json && json.success && typeof json.count === 'number') {
         return json.count;
       }
     }
-  } catch (err) {
-    console.warn('Server bulk import delayed, saved to local cache:', err);
-  }
+  } catch (_) {}
+
   return assets.length;
 }
 
@@ -124,13 +175,19 @@ export async function deleteAssetFromApi(id: string): Promise<void> {
   const current = getLocalCachedAssets().filter((a) => a.id !== id);
   setLocalCachedAssets(current);
 
+  // 1. Direct Supabase delete
+  try {
+    await deleteAssetDirectFromSupabase(id);
+  } catch (supabaseErr) {
+    console.warn('Direct Supabase delete delayed:', supabaseErr);
+  }
+
+  // 2. Secondary backend delete
   try {
     await fetch(`/api/assets/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
-  } catch (err) {
-    console.warn('Server delete delayed, updated local cache:', err);
-  }
+  } catch (_) {}
 }
 
 export async function deleteMultipleAssetsFromApi(ids: string[]): Promise<number> {
@@ -138,6 +195,14 @@ export async function deleteMultipleAssetsFromApi(ids: string[]): Promise<number
   const current = getLocalCachedAssets().filter((a) => !set.has(a.id));
   setLocalCachedAssets(current);
 
+  // 1. Direct Supabase delete
+  try {
+    await deleteMultipleAssetsDirectFromSupabase(ids);
+  } catch (supabaseErr) {
+    console.warn('Direct Supabase multi-delete delayed:', supabaseErr);
+  }
+
+  // 2. Secondary backend delete
   try {
     const res = await fetch('/api/assets/delete-multiple', {
       method: 'POST',
@@ -145,44 +210,61 @@ export async function deleteMultipleAssetsFromApi(ids: string[]): Promise<number
       body: JSON.stringify({ ids }),
     });
     if (res.ok) {
-      const json = await res.json();
-      if (json.success && typeof json.count === 'number') {
+      const json = await safeJsonParse(res);
+      if (json && json.success && typeof json.count === 'number') {
         return json.count;
       }
     }
-  } catch (err) {
-    console.warn('Server multi-delete delayed, updated local cache:', err);
-  }
+  } catch (_) {}
+
   return ids.length;
 }
 
 export async function clearAllAssetsApi(): Promise<void> {
   setLocalCachedAssets([]);
+
+  // 1. Direct Supabase clear
+  try {
+    await clearAllAssetsDirectFromSupabase();
+  } catch (supabaseErr) {
+    console.warn('Direct Supabase clear delayed:', supabaseErr);
+  }
+
+  // 2. Secondary backend clear
   try {
     await fetch('/api/assets/clear-all', {
       method: 'POST',
     });
-  } catch (err) {
-    console.warn('Server clear delayed, cleared local cache:', err);
-  }
+  } catch (_) {}
 }
 
 export async function seedSampleAssetsApi(): Promise<number> {
-  const sample = generateRealisticAssets();
-  setLocalCachedAssets(sample);
+  const fallbackAssets = (initialAssetsData as unknown as AssetItem[]) || [];
+  setLocalCachedAssets(fallbackAssets);
 
+  // Direct Supabase sync
+  try {
+    const result = await syncAssetsToSupabaseClient(fallbackAssets);
+    if (result.success) {
+      return result.count;
+    }
+  } catch (supabaseErr) {
+    console.warn('Direct Supabase seed delayed:', supabaseErr);
+  }
+
+  // Secondary backend seed
   try {
     const res = await fetch('/api/assets/seed-sample', {
       method: 'POST',
     });
     if (res.ok) {
-      const json = await res.json();
-      if (json.success && typeof json.count === 'number') {
+      const json = await safeJsonParse(res);
+      if (json && json.success && typeof json.count === 'number') {
         return json.count;
       }
     }
-  } catch (err) {
-    console.warn('Server sample seed delayed, populated local cache:', err);
-  }
-  return sample.length;
+  } catch (_) {}
+
+  return fallbackAssets.length;
 }
+

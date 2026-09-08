@@ -17,7 +17,15 @@ import {
   ArrowRight,
   UploadCloud,
 } from 'lucide-react';
-import { checkSupabaseConnection, SupabaseHealthResult, SUPABASE_URL, SUPABASE_ANON_KEY } from '../services/supabaseClient';
+import {
+  checkSupabaseConnection,
+  checkSupabaseTableClient,
+  syncAssetsToSupabaseClient,
+  SupabaseHealthResult,
+  SupabaseTableStatus,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+} from '../services/supabaseClient';
 
 interface SupabaseModalProps {
   isOpen: boolean;
@@ -25,17 +33,9 @@ interface SupabaseModalProps {
   onRefreshData?: () => void;
 }
 
-interface TableStatusResponse {
-  connected: boolean;
-  tableExists: boolean;
-  rowCount: number;
-  url: string;
-  error?: string;
-}
-
 export const SupabaseModal: React.FC<SupabaseModalProps> = ({ isOpen, onClose, onRefreshData }) => {
   const [health, setHealth] = useState<SupabaseHealthResult | null>(null);
-  const [tableStatus, setTableStatus] = useState<TableStatusResponse | null>(null);
+  const [tableStatus, setTableStatus] = useState<SupabaseTableStatus | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -54,20 +54,16 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({ isOpen, onClose, o
     try {
       const [resHealth, resTable] = await Promise.all([
         checkSupabaseConnection(),
-        fetch('/api/supabase/status')
-          .then((r) => r.json())
-          .catch(() => null),
+        checkSupabaseTableClient(),
       ]);
       setHealth(resHealth);
-      if (resTable) {
-        setTableStatus(resTable);
-      }
+      setTableStatus(resTable);
     } catch (err: any) {
       setHealth({
         connected: false,
         latencyMs: 0,
         url: SUPABASE_URL,
-        projectRef: SUPABASE_URL.replace(/^https?:\/\//, '').split('.')[0] || 'trygwztiblpuxzpruhor',
+        projectRef: currentProjectRef,
         error: err.message,
       });
     } finally {
@@ -79,17 +75,39 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({ isOpen, onClose, o
     setIsSyncing(true);
     setSyncMessage(null);
     try {
-      const res = await fetch('/api/supabase/seed', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        setSyncMessage(`Berhasil: ${data.message || `${data.count} data berhasil disinkronkan ke Supabase`}`);
+      // 1. Direct browser-to-Supabase sync (runs seamlessly on Vercel, static SPA, and localhost)
+      const directResult = await syncAssetsToSupabaseClient();
+      if (directResult.success) {
+        setSyncMessage(`Berhasil: ${directResult.count} data persil berhasil disinkronkan langsung ke Supabase!`);
         await runCheck();
         if (onRefreshData) onRefreshData();
-      } else {
-        setSyncMessage(`Gagal sinkron: ${data.error || 'Pastikan tabel assets telah dibuat di SQL Editor'}`);
+        return;
       }
+
+      // If direct sync indicated table missing
+      if (directResult.error?.includes('belum dibuat') || directResult.error?.includes('schema cache')) {
+        setSyncMessage(`Gagal sinkron: ${directResult.error}`);
+        return;
+      }
+
+      // 2. Secondary backend attempt (safely checking content-type to never fail on HTML 404)
+      try {
+        const res = await fetch('/api/supabase/seed', { method: 'POST' });
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data.success) {
+            setSyncMessage(`Berhasil: ${data.message || `${data.count} data berhasil disinkronkan ke Supabase`}`);
+            await runCheck();
+            if (onRefreshData) onRefreshData();
+            return;
+          }
+        }
+      } catch (_) {}
+
+      setSyncMessage(`Gagal sinkron: ${directResult.error || 'Pastikan tabel assets telah dibuat di SQL Editor'}`);
     } catch (err: any) {
-      setSyncMessage(`Kesalahan: ${err.message || 'Gagal terhubung ke backend'}`);
+      setSyncMessage(`Kesalahan: ${err.message || 'Gagal terhubung ke Supabase'}`);
     } finally {
       setIsSyncing(false);
     }
@@ -97,14 +115,24 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({ isOpen, onClose, o
 
   const copyFullSqlScript = async () => {
     try {
-      const res = await fetch('/api/supabase/migration-sql');
-      const text = await res.text();
-      navigator.clipboard.writeText(text);
-      setCopiedFullSql(true);
-      setTimeout(() => setCopiedFullSql(false), 2500);
+      // Statically served from /public/ in both Vite and Vercel
+      const res = await fetch('/supabase_schema_and_data.sql');
+      if (res.ok) {
+        const text = await res.text();
+        if (text && text.includes('CREATE TABLE')) {
+          navigator.clipboard.writeText(text);
+          setCopiedFullSql(true);
+          setTimeout(() => setCopiedFullSql(false), 2500);
+          return;
+        }
+      }
     } catch (err) {
-      console.error('Failed to copy full SQL:', err);
+      console.error('Static SQL fetch error:', err);
     }
+
+    navigator.clipboard.writeText(sqlSchemaSnippet);
+    setCopiedFullSql(true);
+    setTimeout(() => setCopiedFullSql(false), 2500);
   };
 
   useEffect(() => {

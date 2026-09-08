@@ -711,7 +711,7 @@ export default function App() {
               const list = Array.isArray(loaded) ? loaded : [];
               setAssets(list);
               setUnitSummaries(recalculateAllUnitSummaries(list));
-              showToast('Data berhasil disinkronisasi ulang dengan database Neon PostgreSQL');
+              showToast('Data berhasil disinkronisasi ulang dengan database Supabase PostgreSQL');
             })
             .catch((err) => {
               console.error(err);
