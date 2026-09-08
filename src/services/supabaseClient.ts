@@ -308,7 +308,13 @@ export async function fetchTargetSettingsFromSupabase(): Promise<CertificationTa
 
     if (data?.catatan) {
       const parsed = JSON.parse(data.catatan) as CertificationTargetSettings;
-      if (parsed && typeof parsed.uptTarget === 'number') {
+      if (parsed) {
+        // Target UPT merupakan jumlah semua target berdasarkan kategori aset
+        const totalUpt = parsed.categoryTargets
+          ? Object.values(parsed.categoryTargets).reduce((a, b) => a + (Number(b) || 0), 0)
+          : (parsed.uptTarget || 0);
+        parsed.uptTarget = totalUpt;
+
         try {
           localStorage.setItem('pln_target_settings', JSON.stringify(parsed));
         } catch (_) {}
@@ -327,15 +333,24 @@ export async function fetchTargetSettingsFromSupabase(): Promise<CertificationTa
  */
 export async function saveTargetSettingsToSupabase(settings: CertificationTargetSettings): Promise<boolean> {
   try {
+    // Target UPT selalu merupakan jumlah semua target berdasarkan kategori aset
+    const totalUpt = settings.categoryTargets
+      ? Object.values(settings.categoryTargets).reduce((a, b) => a + (Number(b) || 0), 0)
+      : (settings.uptTarget || 0);
+    const normalizedSettings: CertificationTargetSettings = {
+      ...settings,
+      uptTarget: totalUpt,
+    };
+
     const client = getSupabaseClient();
     try {
-      localStorage.setItem('pln_target_settings', JSON.stringify(settings));
+      localStorage.setItem('pln_target_settings', JSON.stringify(normalizedSettings));
     } catch (_) {}
 
     const { error } = await client.from('assets').upsert(
       {
         id: SUPABASE_TARGET_CONFIG_ID,
-        catatan: JSON.stringify(settings),
+        catatan: JSON.stringify(normalizedSettings),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'id' }

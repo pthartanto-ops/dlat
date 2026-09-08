@@ -2,19 +2,19 @@ import { AssetItem, BpnStageInfo, UnitSummaryData, PicOfficer, CertificationTarg
 
 export const DEFAULT_TARGET_SETTINGS: CertificationTargetSettings = {
   tahunAnggaran: 2024,
-  uptTarget: 400,
+  uptTarget: 0,
   categoryTargets: {
-    TOWER: 280,
-    'GARDU INDUK': 60,
-    'RUMAH DINAS': 35,
-    'TANAH KOSONG': 25,
-    KANTOR: 10,
-    'EX. GARDU INDUK': 10,
+    TOWER: 0,
+    'GARDU INDUK': 0,
+    'RUMAH DINAS': 0,
+    'TANAH KOSONG': 0,
+    KANTOR: 0,
+    'EX. GARDU INDUK': 0,
   },
   ultgTargets: {
-    'ULTG MADIUN': 150,
-    'ULTG KEDIRI': 130,
-    'ULTG BABAT': 120,
+    'ULTG MADIUN': 0,
+    'ULTG KEDIRI': 0,
+    'ULTG BABAT': 0,
   },
 };
 
@@ -99,7 +99,7 @@ export const INITIAL_UNIT_SUMMARIES: UnitSummaryData[] = [
   {
     unit: 'TOWER',
     jenisAset: 'TOWER',
-    target: 280,
+    target: 0,
     totalAset: 345,
     sertifikatTerbit: {
       pre2021: 42,
@@ -135,7 +135,7 @@ export const INITIAL_UNIT_SUMMARIES: UnitSummaryData[] = [
   {
     unit: 'GARDU INDUK',
     jenisAset: 'GARDU INDUK',
-    target: 60,
+    target: 0,
     totalAset: 75,
     sertifikatTerbit: {
       pre2021: 15,
@@ -171,7 +171,7 @@ export const INITIAL_UNIT_SUMMARIES: UnitSummaryData[] = [
   {
     unit: 'RUMAH DINAS',
     jenisAset: 'RUMAH DINAS',
-    target: 35,
+    target: 0,
     totalAset: 42,
     sertifikatTerbit: {
       pre2021: 8,
@@ -207,7 +207,7 @@ export const INITIAL_UNIT_SUMMARIES: UnitSummaryData[] = [
   {
     unit: 'TANAH KOSONG',
     jenisAset: 'TANAH KOSONG',
-    target: 25,
+    target: 0,
     totalAset: 30,
     sertifikatTerbit: {
       pre2021: 4,
@@ -243,7 +243,7 @@ export const INITIAL_UNIT_SUMMARIES: UnitSummaryData[] = [
   {
     unit: 'KANTOR',
     jenisAset: 'KANTOR',
-    target: 10,
+    target: 0,
     totalAset: 12,
     sertifikatTerbit: {
       pre2021: 4,
@@ -279,7 +279,7 @@ export const INITIAL_UNIT_SUMMARIES: UnitSummaryData[] = [
   {
     unit: 'EX. GARDU INDUK',
     jenisAset: 'EX. GARDU INDUK',
-    target: 10,
+    target: 0,
     totalAset: 8,
     sertifikatTerbit: {
       pre2021: 2,

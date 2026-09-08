@@ -33,6 +33,7 @@ import {
   Calendar,
   Zap,
   Info,
+  Calculator,
 } from 'lucide-react';
 
 interface AdminMenuViewProps {
@@ -108,7 +109,13 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
 
   // Sync targetForm when targetSettings prop updates
   React.useEffect(() => {
-    setTargetForm(targetSettings);
+    const sumUpt = targetSettings.categoryTargets
+      ? Object.values(targetSettings.categoryTargets).reduce<number>((acc, curr) => acc + (Number(curr) || 0), 0)
+      : (targetSettings.uptTarget || 0);
+    setTargetForm({
+      ...targetSettings,
+      uptTarget: sumUpt,
+    });
   }, [targetSettings]);
 
   // Calculations for real-time realization vs target
@@ -229,37 +236,63 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
     });
   }, [assets, filterUltg, filterKategori, filterPicStatus, filterTahun, searchPersil]);
 
+  // Handle Category Target Change: target UPT merupakan akumulasi jumlah seluruh target kategori aset
+  const handleCategoryTargetChange = (cat: CategoryType, rawValue: string | number) => {
+    const num = Math.max(0, Number(rawValue) || 0);
+    const updatedCategories = {
+      ...targetForm.categoryTargets,
+      [cat]: num,
+    };
+    // target UPT otomatis dihitung dari jumlah semua target berdasarkan kategori aset
+    const totalUpt = Object.values(updatedCategories).reduce<number>((sum, v) => sum + (Number(v) || 0), 0);
+    setTargetForm({
+      ...targetForm,
+      categoryTargets: updatedCategories,
+      uptTarget: totalUpt,
+    });
+  };
+
   // Handle Target Saving
   const handleSaveTargets = () => {
     setIsSavingTargets(true);
+    // target UPT dipastikan sama dengan jumlah seluruh kategori aset
+    const totalUpt = Object.values(targetForm.categoryTargets || {}).reduce<number>(
+      (acc, curr) => acc + (Number(curr) || 0),
+      0
+    );
+    const finalTargets: CertificationTargetSettings = {
+      ...targetForm,
+      uptTarget: totalUpt,
+    };
+    setTargetForm(finalTargets);
     setTimeout(() => {
-      onSaveTargetSettings(targetForm);
+      onSaveTargetSettings(finalTargets);
       setIsSavingTargets(false);
-      triggerToast('Target sertifikasi berhasil disimpan dan diperbarui di seluruh dashboard!');
-    }, 300);
+      triggerToast(`Target sertifikasi berhasil disimpan! Total target UPT (${totalUpt} persil) otomatis dihitung dari akumulasi seluruh kategori aset.`);
+    }, 250);
   };
 
   const handleResetDefaultTargets = () => {
     const defaults: CertificationTargetSettings = {
-      tahunAnggaran: 2024,
-      uptTarget: 400,
+      tahunAnggaran: targetForm.tahunAnggaran || 2024,
+      uptTarget: 0,
       categoryTargets: {
-        TOWER: 280,
-        'GARDU INDUK': 60,
-        'RUMAH DINAS': 35,
-        'TANAH KOSONG': 25,
-        KANTOR: 10,
-        'EX. GARDU INDUK': 10,
+        TOWER: 0,
+        'GARDU INDUK': 0,
+        'RUMAH DINAS': 0,
+        'TANAH KOSONG': 0,
+        KANTOR: 0,
+        'EX. GARDU INDUK': 0,
       },
       ultgTargets: {
-        'ULTG MADIUN': 150,
-        'ULTG KEDIRI': 130,
-        'ULTG BABAT': 120,
+        'ULTG MADIUN': 0,
+        'ULTG KEDIRI': 0,
+        'ULTG BABAT': 0,
       },
     };
     setTargetForm(defaults);
     onSaveTargetSettings(defaults);
-    triggerToast('Target sertifikasi dikembalikan ke standar KPI PLN UPT Madiun.');
+    triggerToast('Target sertifikasi direset ke nilai default awal (0 persil).');
   };
 
   // Open PIC modal for Add
@@ -571,20 +604,29 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-emerald-950 mb-1">
-                    Target Akumulasi UPT Madiun (Total Bidang)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={targetForm.uptTarget}
-                    onChange={(e) =>
-                      setTargetForm({ ...targetForm, uptTarget: Math.max(0, Number(e.target.value)) })
-                    }
-                    className="bg-white border border-emerald-300 rounded-lg p-2 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-full"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-emerald-950">
+                      Target Akumulasi UPT Madiun (Total Bidang)
+                    </label>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md flex items-center gap-1 border border-emerald-200">
+                      <Calculator className="w-3 h-3 text-emerald-700" />
+                      Jumlah Target Kategori
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      readOnly
+                      value={targetForm.uptTarget}
+                      className="bg-emerald-100/70 border border-emerald-300 rounded-lg p-2 text-xs font-black text-emerald-900 w-full cursor-not-allowed pr-14 select-none"
+                      title="Target UPT otomatis dihitung dari penjumlahan seluruh target kategori aset"
+                    />
+                    <span className="absolute right-3 top-2 text-xs font-bold text-emerald-700 pointer-events-none">
+                      Persil
+                    </span>
+                  </div>
                   <span className="text-[11px] text-emerald-800 mt-1 block">
-                    Target agregat keseluruhan sertifikasi tanah di tingkat UPT Madiun.
+                    Target agregat UPT Madiun merupakan jumlah dari seluruh target per kategori di bawah ({targetForm.uptTarget} persil).
                   </span>
                 </div>
               </div>
@@ -631,17 +673,10 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
                             <input
                               type="number"
                               min={0}
-                              value={currentTarget}
-                              onChange={(e) =>
-                                setTargetForm({
-                                  ...targetForm,
-                                  categoryTargets: {
-                                    ...targetForm.categoryTargets,
-                                    [cat]: Math.max(0, Number(e.target.value)),
-                                  },
-                                })
-                              }
-                              className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-600"
+                              value={currentTarget === 0 ? '' : currentTarget}
+                              placeholder="0"
+                              onChange={(e) => handleCategoryTargetChange(cat, e.target.value)}
+                              className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-600"
                             />
                           </div>
 
@@ -700,17 +735,18 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
                           <input
                             type="number"
                             min={0}
-                            value={currentTarget}
+                            value={currentTarget === 0 ? '' : currentTarget}
+                            placeholder="0"
                             onChange={(e) =>
                               setTargetForm({
                                 ...targetForm,
                                 ultgTargets: {
                                   ...targetForm.ultgTargets,
-                                  [uName]: Math.max(0, Number(e.target.value)),
+                                  [uName]: Math.max(0, Number(e.target.value) || 0),
                                 },
                               })
                             }
-                            className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-600"
+                            className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-600"
                           />
                         </div>
 

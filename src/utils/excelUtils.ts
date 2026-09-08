@@ -719,18 +719,7 @@ export function recalculateAllUnitSummaries(
 
   return categories.map((catName) => {
     const existing = currentSummaries?.find((s) => s.unit === catName || s.jenisAset === catName);
-    const defaultTarget =
-      catName === 'TOWER'
-        ? 280
-        : catName === 'GARDU INDUK'
-        ? 60
-        : catName === 'RUMAH DINAS'
-        ? 35
-        : catName === 'TANAH KOSONG'
-        ? 25
-        : catName === 'KANTOR'
-        ? 10
-        : 10;
+    const defaultTarget = 0;
     const target = customCategoryTargets?.[catName] ?? (existing ? existing.target : defaultTarget);
 
     const catAssets = assets.filter((a) => {
@@ -832,7 +821,7 @@ export function recalculateAllUltgSummaries(
 
   return units.map((uName) => {
     const existing = currentSummaries?.find((s) => s.unit === uName);
-    const target = customUltgTargets?.[uName] ?? (existing ? existing.target : 300);
+    const target = customUltgTargets?.[uName] ?? (existing ? existing.target : 0);
 
     const unitAssets = assets.filter((a) => a.ultg === uName);
     const totalAset = unitAssets.length;

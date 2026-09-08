@@ -173,8 +173,14 @@ export default function App() {
 
         let activeTargets = targetSettings;
         if (remoteTargetSettings) {
-          activeTargets = remoteTargetSettings;
-          setTargetSettings(remoteTargetSettings);
+          const sumUpt = remoteTargetSettings.categoryTargets
+            ? Object.values(remoteTargetSettings.categoryTargets).reduce((acc, curr) => acc + (Number(curr) || 0), 0)
+            : (remoteTargetSettings.uptTarget || 0);
+          activeTargets = {
+            ...remoteTargetSettings,
+            uptTarget: sumUpt,
+          };
+          setTargetSettings(activeTargets);
         }
         if (remotePicOfficers) {
           setPicOfficers(remotePicOfficers);
@@ -218,8 +224,14 @@ export default function App() {
 
       let activeTargets = targetSettings;
       if (remoteTargetSettings) {
-        activeTargets = remoteTargetSettings;
-        setTargetSettings(remoteTargetSettings);
+        const sumUpt = remoteTargetSettings.categoryTargets
+          ? Object.values(remoteTargetSettings.categoryTargets).reduce((acc, curr) => acc + (Number(curr) || 0), 0)
+          : (remoteTargetSettings.uptTarget || 0);
+        activeTargets = {
+          ...remoteTargetSettings,
+          uptTarget: sumUpt,
+        };
+        setTargetSettings(activeTargets);
       }
       if (remotePicOfficers) {
         setPicOfficers(remotePicOfficers);
@@ -458,17 +470,26 @@ export default function App() {
 
   // Save target settings & recalculate summaries
   const handleSaveTargetSettings = (newSettings: CertificationTargetSettings) => {
-    setTargetSettings(newSettings);
+    // Target UPT merupakan jumlah semua target berdasarkan kategori aset
+    const totalUpt = Object.values(newSettings.categoryTargets || {}).reduce(
+      (acc, curr) => acc + (Number(curr) || 0),
+      0
+    );
+    const finalizedSettings: CertificationTargetSettings = {
+      ...newSettings,
+      uptTarget: totalUpt,
+    };
+    setTargetSettings(finalizedSettings);
     try {
-      localStorage.setItem('pln_target_settings', JSON.stringify(newSettings));
+      localStorage.setItem('pln_target_settings', JSON.stringify(finalizedSettings));
     } catch (e) {
       console.error(e);
     }
-    saveTargetSettingsToSupabase(newSettings).catch((err) => {
+    saveTargetSettingsToSupabase(finalizedSettings).catch((err) => {
       console.warn('Gagal sinkron target ke Supabase:', err);
     });
-    setUnitSummaries(recalculateAllUnitSummaries(assets, undefined, newSettings.categoryTargets));
-    showToast('Target sertifikasi berhasil disimpan & tersinkronisasi ke cloud database!');
+    setUnitSummaries(recalculateAllUnitSummaries(assets, undefined, finalizedSettings.categoryTargets));
+    showToast(`Target sertifikasi berhasil disimpan! Total target UPT (${totalUpt} persil) tersinkronisasi ke cloud database.`);
   };
 
   // Save PIC officers list
@@ -755,8 +776,14 @@ export default function App() {
               setAssets(list);
               let activeTargets = targetSettings;
               if (remoteTargets) {
-                activeTargets = remoteTargets;
-                setTargetSettings(remoteTargets);
+                const sumUpt = remoteTargets.categoryTargets
+                  ? Object.values(remoteTargets.categoryTargets).reduce((acc, curr) => acc + (Number(curr) || 0), 0)
+                  : (remoteTargets.uptTarget || 0);
+                activeTargets = {
+                  ...remoteTargets,
+                  uptTarget: sumUpt,
+                };
+                setTargetSettings(activeTargets);
               }
               if (remotePics) {
                 setPicOfficers(remotePics);
