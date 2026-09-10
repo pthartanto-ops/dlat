@@ -13,7 +13,9 @@ const EMPTY_FORM_DATA = {
   upt: 'UPT MADIUN',
   ultg: '',
   penghantar: '',
+  asetProperti: '',
   asetLapangan: '',
+  asetCbm: '',
   desa: '',
   kecamatan: '',
   bpn: '',
@@ -25,6 +27,8 @@ const EMPTY_FORM_DATA = {
   asset: '',
   nib: '',
   kategori: '' as CategoryType | '',
+  tanggalTerbit: '',
+  tanggalAkhir: '',
   tahun: '',
   kendala: '',
   koordinat: '',
@@ -65,52 +69,74 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
     const numLuas = formData.luas !== '' ? Number(formData.luas) : 0;
     const parsedTahun = formData.tahun ? Number(formData.tahun) : 0;
 
+    const propertiVal = (formData.asetProperti || formData.asetLapangan || '-').toUpperCase().trim();
+    const cbmVal = (formData.asetCbm || '-').toUpperCase().trim();
+
+    // Format tanggal terbit dan tanggal akhir lengkap (DD/MM/YYYY)
+    const rawTglTerbit = formData.tanggalTerbit.trim();
+    const finalTglTerbit = rawTglTerbit || (isTerbit ? '15/09/2024' : '-');
+    const rawTglAkhir = formData.tanggalAkhir.trim();
+    const finalTglAkhir = rawTglAkhir || '31/12/2025';
+
+    // Derive year from tanggalTerbit or explicit tahun
+    let derivedYear = 0;
+    if (finalTglTerbit && finalTglTerbit !== '-' && finalTglTerbit.includes('/')) {
+      const parts = finalTglTerbit.split('/');
+      const y = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(y) && y > 1900) derivedYear = y;
+    }
+    if (derivedYear === 0 && !isNaN(parsedTahun) && parsedTahun > 0) {
+      derivedYear = parsedTahun;
+    }
+
     const newItem: AssetItem = {
       id: nowId,
       alasHak: chosenAlasHak,
       tahapan: formData.tahapan,
       statusDisplay: isTerbit ? 'TERBIT' : `TAHAP ${formData.tahapan}`,
-      upt: formData.upt || 'UPT MADIUN',
-      ultg: chosenUltg,
-      penghantar: formData.penghantar || '-',
-      asetLapangan: formData.asetLapangan || '-',
-      desa: formData.desa || '-',
-      kecamatan: formData.kecamatan || '-',
-      bpn: formData.bpn || '-',
+      upt: (formData.upt || 'UPT MADIUN').toUpperCase().trim(),
+      ultg: chosenUltg.toUpperCase().trim(),
+      penghantar: (formData.penghantar || '-').toUpperCase().trim(),
+      asetProperti: propertiVal,
+      asetLapangan: propertiVal,
+      asetCbm: cbmVal,
+      desa: (formData.desa || '-').toUpperCase().trim(),
+      kecamatan: (formData.kecamatan || '-').toUpperCase().trim(),
+      bpn: (formData.bpn || '-').toUpperCase().trim(),
       luas: numLuas,
-      persil: formData.persil || '-',
-      noSertifikat: formData.noSertifikat || (isTerbit ? `HP No. 00${Math.floor(100 + Math.random() * 800)}/2024` : '-'),
-      asset: formData.asset || '-',
-      nib: formData.nib || '-',
+      persil: (formData.persil || '').toUpperCase().trim(),
+      noSertifikat: (formData.noSertifikat || (isTerbit ? `HP NO. 00${Math.floor(100 + Math.random() * 800)}/2024` : '-')).toUpperCase().trim(),
+      asset: (formData.asset || '-').toUpperCase().trim(),
+      nib: (formData.nib || '-').toUpperCase().trim(),
       sps1: {
-        spsNo: formData.sps1No.trim() || '-',
+        spsNo: (formData.sps1No.trim() || '-').toUpperCase(),
         tanggalSps: formData.sps1Date.trim() || '-',
         amount: 0,
         isPaid: Boolean(formData.sps1Date.trim() || formData.tahapan >= 5),
         paymentDate: formData.sps1Date.trim() || undefined,
       },
       sps2: {
-        spsNo: formData.sps2No.trim() || '-',
+        spsNo: (formData.sps2No.trim() || '-').toUpperCase(),
         tanggalSps: formData.sps2Date.trim() || '-',
         amount: 0,
         isPaid: Boolean(formData.sps2Date.trim() || formData.tahapan >= 9),
         paymentDate: formData.sps2Date.trim() || undefined,
       },
       sps3: {
-        spsNo: formData.sps3No.trim() || '-',
+        spsNo: (formData.sps3No.trim() || '-').toUpperCase(),
         tanggalSps: formData.sps3Date.trim() || '-',
         amount: 0,
         isPaid: Boolean(formData.sps3Date.trim() || formData.tahapan >= 14),
         paymentDate: formData.sps3Date.trim() || undefined,
       },
       totalPnbp: 0,
-      tanggalTerbit: isTerbit ? '15/09/2024' : '-',
-      tanggalAkhir: '31/12/2025',
+      tanggalTerbit: finalTglTerbit,
+      tanggalAkhir: finalTglAkhir,
       kategori: chosenKategori,
-      tahun: isNaN(parsedTahun) ? 0 : parsedTahun,
-      kendala: formData.kendala.trim() ? formData.kendala.trim() : 'Lancar tanpa kendala',
+      tahun: derivedYear,
+      kendala: (formData.kendala.trim() ? formData.kendala.trim() : 'LANCAR TANPA KENDALA').toUpperCase(),
       koordinat: formData.koordinat.trim() || '',
-      pic: formData.pic.trim() || (picOfficers[0]?.nama ? `${picOfficers[0].nama} (${picOfficers[0].unit})` : 'Tim Pokja Sertifikasi UPT'),
+      pic: (formData.pic.trim() || (picOfficers[0]?.nama ? `${picOfficers[0].nama} (${picOfficers[0].unit})` : 'TIM POKJA SERTIFIKASI UPT')).toUpperCase().trim(),
     };
 
     onAddAsset(newItem);
@@ -177,23 +203,39 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                 type="text"
                 required
                 value={formData.penghantar}
-                onChange={(e) => setFormData({ ...formData, penghantar: e.target.value })}
-                placeholder="Contoh: SUTT 150 kV Manisrejo - Nganjuk"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                onChange={(e) => setFormData({ ...formData, penghantar: e.target.value.toUpperCase() })}
+                placeholder="Contoh: SUTT 150 KV MANISREJO - NGANJUK"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
             <div>
               <label className="block font-bold text-slate-700 mb-1">
-                Nama Aset Lapangan <span className="text-red-500">*</span>
+                Aset Properti <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 required
-                value={formData.asetLapangan}
-                onChange={(e) => setFormData({ ...formData, asetLapangan: e.target.value })}
-                placeholder="Contoh: Tapak Tower T.45 / GI Manisrejo"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                value={formData.asetProperti || formData.asetLapangan}
+                onChange={(e) => {
+                  const val = e.target.value.toUpperCase();
+                  setFormData({ ...formData, asetProperti: val, asetLapangan: val });
+                }}
+                placeholder="Contoh: TAPAK TOWER T.45 / GI MANISREJO"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                Aset CBM (Opsional)
+              </label>
+              <input
+                type="text"
+                value={formData.asetCbm}
+                onChange={(e) => setFormData({ ...formData, asetCbm: e.target.value.toUpperCase() })}
+                placeholder="Contoh: CBM-01 (kosongkan jika tidak ada)"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
@@ -205,9 +247,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                 type="text"
                 required
                 value={formData.bpn}
-                onChange={(e) => setFormData({ ...formData, bpn: e.target.value })}
-                placeholder="Contoh: BPN Kab Madiun"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                onChange={(e) => setFormData({ ...formData, bpn: e.target.value.toUpperCase() })}
+                placeholder="Contoh: BPN KAB MADIUN"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
@@ -219,9 +261,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                 type="text"
                 required
                 value={formData.desa}
-                onChange={(e) => setFormData({ ...formData, desa: e.target.value })}
-                placeholder="Masukkan nama desa"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                onChange={(e) => setFormData({ ...formData, desa: e.target.value.toUpperCase() })}
+                placeholder="MASUKKAN NAMA DESA"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
@@ -233,9 +275,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                 type="text"
                 required
                 value={formData.kecamatan}
-                onChange={(e) => setFormData({ ...formData, kecamatan: e.target.value })}
-                placeholder="Masukkan nama kecamatan"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                onChange={(e) => setFormData({ ...formData, kecamatan: e.target.value.toUpperCase() })}
+                placeholder="MASUKKAN NAMA KECAMATAN"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
@@ -298,26 +340,40 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
 
             <div>
               <label className="block font-bold text-slate-700 mb-1">
-                Nomor Persil <span className="text-red-500">*</span>
+                Jumlah Persil (Opsional)
               </label>
               <input
                 type="text"
-                required
                 value={formData.persil}
-                onChange={(e) => setFormData({ ...formData, persil: e.target.value })}
-                placeholder="Contoh: 045.A"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                onChange={(e) => setFormData({ ...formData, persil: e.target.value.toUpperCase() })}
+                placeholder="Contoh: 1 (jumlah persil)"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Tahun Aset (Opsional)</label>
+              <label className="block font-bold text-slate-700 mb-1">
+                Tgl Terbit (Format Lengkap: DD/MM/YYYY)
+              </label>
               <input
-                type="number"
-                value={formData.tahun}
-                onChange={(e) => setFormData({ ...formData, tahun: e.target.value })}
-                placeholder="Contoh: 2024 (kosongkan jika belum ada)"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                type="text"
+                value={formData.tanggalTerbit}
+                onChange={(e) => setFormData({ ...formData, tanggalTerbit: e.target.value })}
+                placeholder="Contoh: 15/09/2024"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 font-mono focus:bg-white focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                Tgl Akhir / Target (Format Lengkap: DD/MM/YYYY)
+              </label>
+              <input
+                type="text"
+                value={formData.tanggalAkhir}
+                onChange={(e) => setFormData({ ...formData, tanggalAkhir: e.target.value })}
+                placeholder="Contoh: 31/12/2025"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 font-mono focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
@@ -337,9 +393,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
               <input
                 type="text"
                 value={formData.asset}
-                onChange={(e) => setFormData({ ...formData, asset: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, asset: e.target.value.toUpperCase() })}
                 placeholder="Contoh: 300189201"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
@@ -348,9 +404,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
               <input
                 type="text"
                 value={formData.nib}
-                onChange={(e) => setFormData({ ...formData, nib: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, nib: e.target.value.toUpperCase() })}
                 placeholder="Contoh: 12.04.05.00999"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
@@ -369,9 +425,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                     <input
                       type="text"
                       value={formData.sps1No}
-                      onChange={(e) => setFormData({ ...formData, sps1No: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, sps1No: e.target.value.toUpperCase() })}
                       placeholder="No. SPS Pengukuran"
-                      className="w-full bg-slate-50 border border-slate-300 rounded p-1.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none"
+                      className="w-full uppercase bg-slate-50 border border-slate-300 rounded p-1.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none"
                     />
                   </div>
                   <div>
@@ -394,9 +450,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                     <input
                       type="text"
                       value={formData.sps2No}
-                      onChange={(e) => setFormData({ ...formData, sps2No: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, sps2No: e.target.value.toUpperCase() })}
                       placeholder="No. SPS Panitia A"
-                      className="w-full bg-slate-50 border border-slate-300 rounded p-1.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none"
+                      className="w-full uppercase bg-slate-50 border border-slate-300 rounded p-1.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none"
                     />
                   </div>
                   <div>
@@ -419,9 +475,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                     <input
                       type="text"
                       value={formData.sps3No}
-                      onChange={(e) => setFormData({ ...formData, sps3No: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, sps3No: e.target.value.toUpperCase() })}
                       placeholder="No. SPS Pendaftaran"
-                      className="w-full bg-slate-50 border border-slate-300 rounded p-1.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none"
+                      className="w-full uppercase bg-slate-50 border border-slate-300 rounded p-1.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none"
                     />
                   </div>
                   <div>
@@ -446,15 +502,15 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                 <input
                   type="text"
                   value={formData.pic}
-                  onChange={(e) => setFormData({ ...formData, pic: e.target.value })}
-                  placeholder="Contoh: Budi Santoso / Tim Pokja ULTG"
-                  className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                  onChange={(e) => setFormData({ ...formData, pic: e.target.value.toUpperCase() })}
+                  placeholder="Contoh: BUDI SANTOSO / TIM POKJA ULTG"
+                  className="flex-1 uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
                 />
                 {picOfficers.length > 0 && (
                   <select
                     value=""
                     onChange={(e) => {
-                      if (e.target.value) setFormData({ ...formData, pic: e.target.value });
+                      if (e.target.value) setFormData({ ...formData, pic: e.target.value.toUpperCase() });
                     }}
                     className="bg-slate-100 border border-slate-300 rounded-lg px-2 text-xs text-slate-700 cursor-pointer"
                   >
@@ -474,9 +530,9 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
               <input
                 type="text"
                 value={formData.kendala}
-                onChange={(e) => setFormData({ ...formData, kendala: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, kendala: e.target.value.toUpperCase() })}
                 placeholder="Kosongkan jika proses lancar tanpa kendala"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
             </div>
           </div>

@@ -72,9 +72,15 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
 
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1.5">
               <div className="flex justify-between items-center text-[11px]">
-                <span className="text-slate-500">Aset Lapangan:</span>
-                <strong className="text-slate-900">{singleItem.asetLapangan}</strong>
+                <span className="text-slate-500">Aset Properti:</span>
+                <strong className="text-slate-900">{singleItem.asetProperti || singleItem.asetLapangan}</strong>
               </div>
+              {singleItem.asetCbm && singleItem.asetCbm !== '-' && (
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-slate-500">Aset CBM:</span>
+                  <strong className="text-slate-800 font-mono">{singleItem.asetCbm}</strong>
+                </div>
+              )}
               <div className="flex justify-between items-center text-[11px]">
                 <span className="text-slate-500">Penghantar / Jalur:</span>
                 <span className="text-slate-800">{singleItem.penghantar}</span>
@@ -162,7 +168,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
               <div className="text-[10px] uppercase font-bold text-slate-400">Rincian Persil yang Dihapus:</div>
               <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                <span className="font-bold text-slate-900 text-sm">{singleItem.asetLapangan}</span>
+                <span className="font-bold text-slate-900 text-sm">
+                  {singleItem.asetProperti || singleItem.asetLapangan}
+                  {singleItem.asetCbm && singleItem.asetCbm !== '-' ? ` (${singleItem.asetCbm})` : ''}
+                </span>
                 <span className="font-mono text-xs font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
                   {singleItem.id}
                 </span>
@@ -203,7 +212,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-slate-400 font-mono w-5 text-right">{idx + 1}.</span>
                       <div>
-                        <strong className="text-slate-900">{item.asetLapangan}</strong>
+                        <strong className="text-slate-900">{item.asetProperti || item.asetLapangan}</strong>
+                        {item.asetCbm && item.asetCbm !== '-' && (
+                          <span className="text-slate-600 text-[10px] ml-1 font-mono">[{item.asetCbm}]</span>
+                        )}
                         <span className="text-slate-500 text-[10px] ml-1.5 font-mono">({item.id})</span>
                         <div className="text-[10px] text-slate-500">{item.penghantar} - {item.ultg}</div>
                       </div>

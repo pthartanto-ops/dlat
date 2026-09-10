@@ -335,20 +335,30 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
       return;
     }
 
+    const sanitizedPic = {
+      ...picFormData,
+      nama: picFormData.nama.toUpperCase().trim(),
+      nip: picFormData.nip.toUpperCase().trim(),
+      jabatan: picFormData.jabatan.toUpperCase().trim(),
+      unit: picFormData.unit.toUpperCase().trim(),
+      kantahFokus: picFormData.kantahFokus.toUpperCase().trim(),
+      kontak: picFormData.kontak.toUpperCase().trim(),
+    };
+
     let updatedList: PicOfficer[];
     if (editingPic) {
       updatedList = picOfficers.map((p) =>
-        p.id === editingPic.id ? { ...p, ...picFormData } : p
+        p.id === editingPic.id ? { ...p, ...sanitizedPic } : p
       );
-      triggerToast(`Data petugas PIC "${picFormData.nama}" berhasil diperbarui.`);
+      triggerToast(`Data petugas PIC "${sanitizedPic.nama}" berhasil diperbarui.`);
     } else {
       const newId = `PIC-${String(picOfficers.length + 1).padStart(3, '0')}`;
       const newOfficer: PicOfficer = {
         id: newId,
-        ...picFormData,
+        ...sanitizedPic,
       };
       updatedList = [...picOfficers, newOfficer];
-      triggerToast(`Petugas PIC "${picFormData.nama}" berhasil ditambahkan.`);
+      triggerToast(`Petugas PIC "${sanitizedPic.nama}" berhasil ditambahkan.`);
     }
 
     onSavePicOfficers(updatedList);
@@ -1220,9 +1230,9 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
                     type="text"
                     required
                     value={picFormData.nama}
-                    onChange={(e) => setPicFormData({ ...picFormData, nama: e.target.value })}
-                    placeholder="Contoh: Bpk. Ahmad Yani, S.T."
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none font-medium"
+                    onChange={(e) => setPicFormData({ ...picFormData, nama: e.target.value.toUpperCase() })}
+                    placeholder="Contoh: BPK. AHMAD YANI, S.T."
+                    className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none font-medium"
                   />
                 </div>
 
@@ -1232,9 +1242,9 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
                     <input
                       type="text"
                       value={picFormData.nip}
-                      onChange={(e) => setPicFormData({ ...picFormData, nip: e.target.value })}
+                      onChange={(e) => setPicFormData({ ...picFormData, nip: e.target.value.toUpperCase() })}
                       placeholder="Contoh: 198904122013111002"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none font-mono"
+                      className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none font-mono"
                     />
                   </div>
 
@@ -1259,9 +1269,9 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
                     <input
                       type="text"
                       value={picFormData.jabatan}
-                      onChange={(e) => setPicFormData({ ...picFormData, jabatan: e.target.value })}
-                      placeholder="Contoh: Supervisor Pertanahan & ROW"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                      onChange={(e) => setPicFormData({ ...picFormData, jabatan: e.target.value.toUpperCase() })}
+                      placeholder="Contoh: SUPERVISOR PERTANAHAN & ROW"
+                      className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
                     />
                   </div>
 
@@ -1286,9 +1296,9 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
                     <input
                       type="text"
                       value={picFormData.kontak}
-                      onChange={(e) => setPicFormData({ ...picFormData, kontak: e.target.value })}
+                      onChange={(e) => setPicFormData({ ...picFormData, kontak: e.target.value.toUpperCase() })}
                       placeholder="Contoh: 0812-3456-7890"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none font-mono"
+                      className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none font-mono"
                     />
                   </div>
 
@@ -1311,9 +1321,9 @@ export const AdminMenuView: React.FC<AdminMenuViewProps> = ({
                   <input
                     type="text"
                     value={picFormData.kantahFokus}
-                    onChange={(e) => setPicFormData({ ...picFormData, kantahFokus: e.target.value })}
-                    placeholder="Contoh: BPN Kab Madiun, BPN Kota Madiun, BPN Magetan"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                    onChange={(e) => setPicFormData({ ...picFormData, kantahFokus: e.target.value.toUpperCase() })}
+                    placeholder="Contoh: BPN KAB MADIUN, BPN KOTA MADIUN, BPN MAGETAN"
+                    className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
                   />
                   <span className="text-[10px] text-slate-400 mt-1 block">
                     Sebutkan kantor pertanahan BPN yang menjadi fokus pengawalan petugas ini.

@@ -57,12 +57,14 @@ export interface AssetItem {
   upt: string; // e.g. 'UPT MADIUN'
   ultg: string; // e.g. 'ULTG MADIUN', 'ULTG KEDIRI', 'ULTG BABAT'
   penghantar: string; // e.g. 'SUTT 150 kV Manisrejo - Nganjuk'
-  asetLapangan: string; // e.g. 'Tapak Tower T.12'
+  asetProperti?: string; // Aset Properti (e.g. 'TAPAK TOWER T.12')
+  asetLapangan: string; // Kompatibilitas alias untuk asetProperti
+  asetCbm?: string; // Aset CBM (e.g. 'CBM-01' atau '-')
   desa: string;
   kecamatan: string;
   bpn: string; // e.g. 'BPN Kab Madiun'
   luas: number; // m²
-  persil: string; // No. Persil e.g. '045.A'
+  persil: string; // Jumlah persil (e.g. '1', '2') bukan nomor persil & tidak wajib diisi
   noSertifikat: string; // e.g. 'HP No. 00124/2023' or '-'
   asset: string; // SAP Asset ID e.g. '300189201'
   nib: string; // e.g. '12.04.05.00124' or '-'

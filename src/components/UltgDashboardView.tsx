@@ -261,7 +261,8 @@ export const UltgDashboardView: React.FC<UltgDashboardViewProps> = ({
               <tr>
                 <th className="py-2 px-3">ID</th>
                 <th className="py-2 px-3">Penghantar / Jalur</th>
-                <th className="py-2 px-3">Aset Lapangan</th>
+                <th className="py-2 px-3">Aset Properti</th>
+                <th className="py-2 px-3">Aset CBM</th>
                 <th className="py-2 px-3">Desa / BPN</th>
                 <th className="py-2 px-3">Tahapan</th>
                 <th className="py-2 px-3">No Sertifikat</th>
@@ -273,7 +274,8 @@ export const UltgDashboardView: React.FC<UltgDashboardViewProps> = ({
                 <tr key={a.id} className="hover:bg-slate-50">
                   <td className="py-2 px-3 font-mono text-slate-500">{a.id}</td>
                   <td className="py-2 px-3 text-slate-900 font-semibold">{a.penghantar}</td>
-                  <td className="py-2 px-3 text-slate-700">{a.asetLapangan}</td>
+                  <td className="py-2 px-3 text-slate-700">{a.asetProperti || a.asetLapangan}</td>
+                  <td className="py-2 px-3 text-slate-700 font-mono text-xs">{a.asetCbm && a.asetCbm !== '-' ? a.asetCbm : '-'}</td>
                   <td className="py-2 px-3 text-slate-700">
                     {a.desa} ({a.bpn})
                   </td>

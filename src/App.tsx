@@ -13,6 +13,7 @@ import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { ClearAllConfirmModal } from './components/ClearAllConfirmModal';
 import { SupabaseModal } from './components/SupabaseModal';
 import { recalculateAllUnitSummaries, recalculateAllUltgSummaries } from './utils/excelUtils';
+import { normalizeAssetToUpperCase, normalizeAssetsToUpperCase } from './utils/textUtils';
 import {
   fetchAssetsFromApi,
   saveAssetToApi,
@@ -138,7 +139,8 @@ export default function App() {
 
   const handleRestoreFromDrive = async (restoredAssets: AssetItem[], newSettings?: CertificationTargetSettings) => {
     if (Array.isArray(restoredAssets) && restoredAssets.length > 0) {
-      setAssets(restoredAssets);
+      const sanitizedAssets = normalizeAssetsToUpperCase(restoredAssets);
+      setAssets(sanitizedAssets);
       if (newSettings) {
         setTargetSettings(newSettings);
         try {
@@ -147,10 +149,10 @@ export default function App() {
           console.warn('Failed to persist target settings:', e);
         }
       }
-      setUnitSummaries(recalculateAllUnitSummaries(restoredAssets, undefined, (newSettings || targetSettings).categoryTargets));
-      showToast(`Sukses memulihkan ${restoredAssets.length} data persil dari Google Drive!`);
+      setUnitSummaries(recalculateAllUnitSummaries(sanitizedAssets, undefined, (newSettings || targetSettings).categoryTargets));
+      showToast(`Sukses memulihkan ${sanitizedAssets.length} data persil dari Google Drive!`);
       try {
-        await bulkSaveAssetsToApi(restoredAssets);
+        await bulkSaveAssetsToApi(sanitizedAssets);
       } catch (e) {
         console.warn('Sync restored assets to API error:', e);
       }
@@ -168,7 +170,7 @@ export default function App() {
     ])
       .then(([loadedAssets, remoteTargetSettings, remotePicOfficers]) => {
         if (!isSubscribed) return;
-        const validList = Array.isArray(loadedAssets) ? loadedAssets : [];
+        const validList = normalizeAssetsToUpperCase(Array.isArray(loadedAssets) ? loadedAssets : []);
         setAssets(validList);
 
         let activeTargets = targetSettings;
@@ -219,7 +221,7 @@ export default function App() {
         fetchTargetSettingsFromSupabase(),
         fetchPicOfficersFromSupabase(),
       ]);
-      const validList = Array.isArray(loadedAssets) ? loadedAssets : [];
+      const validList = normalizeAssetsToUpperCase(Array.isArray(loadedAssets) ? loadedAssets : []);
       setAssets(validList);
 
       let activeTargets = targetSettings;
@@ -542,23 +544,25 @@ export default function App() {
 
   // Add new asset
   const handleAddNewAsset = (newAsset: AssetItem) => {
-    const nextList = [newAsset, ...assets];
+    const sanitizedAsset = normalizeAssetToUpperCase(newAsset);
+    const nextList = [sanitizedAsset, ...assets];
     setAssets(nextList);
     setUnitSummaries(recalculateAllUnitSummaries(nextList, undefined, targetSettings.categoryTargets));
-    showToast(`Aset baru ${newAsset.id} berhasil ditambahkan!`);
+    showToast(`Aset baru ${sanitizedAsset.id} berhasil ditambahkan!`);
     // Sync to database
-    saveAssetToApi(newAsset).catch((err) => {
+    saveAssetToApi(sanitizedAsset).catch((err) => {
       console.error('Failed to sync new asset to database:', err);
     });
   };
 
   // Bulk Import Excel assets
   const handleImportAssets = async (newAssets: AssetItem[], mode: 'append' | 'replace') => {
+    const sanitizedNewAssets = normalizeAssetsToUpperCase(newAssets);
     let updatedAssets: AssetItem[] = [];
     if (mode === 'replace') {
-      updatedAssets = newAssets;
+      updatedAssets = sanitizedNewAssets;
     } else {
-      updatedAssets = [...newAssets, ...assets];
+      updatedAssets = [...sanitizedNewAssets, ...assets];
     }
     setAssets(updatedAssets);
     setSelectedIds([]);
@@ -568,23 +572,23 @@ export default function App() {
     setUnitSummaries(recalculateAllUnitSummaries(updatedAssets, undefined, targetSettings.categoryTargets));
 
     if (mode === 'replace') {
-      if (newAssets.length === 0) {
+      if (sanitizedNewAssets.length === 0) {
         showToast('Database berhasil dikosongkan sesuai berkas Excel kosong.');
       } else {
-        showToast(`Berhasil mengganti seluruh database dengan ${newAssets.length} aset dari Excel!`);
+        showToast(`Berhasil mengganti seluruh database dengan ${sanitizedNewAssets.length} aset dari Excel!`);
       }
       try {
         await clearAllAssetsApi();
-        if (newAssets.length > 0) {
-          await bulkSaveAssetsToApi(newAssets);
+        if (sanitizedNewAssets.length > 0) {
+          await bulkSaveAssetsToApi(sanitizedNewAssets);
         }
       } catch (err) {
         console.error('Failed to replace assets in database:', err);
       }
     } else {
-      showToast(`Berhasil mengimpor ${newAssets.length} aset tanah dari file Excel!`);
-      if (newAssets.length > 0) {
-        bulkSaveAssetsToApi(newAssets).catch((err) => {
+      showToast(`Berhasil mengimpor ${sanitizedNewAssets.length} aset tanah dari file Excel!`);
+      if (sanitizedNewAssets.length > 0) {
+        bulkSaveAssetsToApi(sanitizedNewAssets).catch((err) => {
           console.error('Failed to bulk sync assets to database:', err);
         });
       }
@@ -593,16 +597,17 @@ export default function App() {
 
   // Update edited asset
   const handleSaveEditedAsset = (updatedAsset: AssetItem) => {
-    const updatedAssets = assets.map((a) => (a.id === updatedAsset.id ? updatedAsset : a));
+    const sanitizedAsset = normalizeAssetToUpperCase(updatedAsset);
+    const updatedAssets = assets.map((a) => (a.id === sanitizedAsset.id ? sanitizedAsset : a));
     setAssets(updatedAssets);
     setUnitSummaries(recalculateAllUnitSummaries(updatedAssets, undefined, targetSettings.categoryTargets));
-    if (selectedAssetDetail && selectedAssetDetail.id === updatedAsset.id) {
-      setSelectedAssetDetail(updatedAsset);
+    if (selectedAssetDetail && selectedAssetDetail.id === sanitizedAsset.id) {
+      setSelectedAssetDetail(sanitizedAsset);
     }
-    showToast(`Data persil ${updatedAsset.id} (${updatedAsset.asetLapangan}) berhasil diperbarui!`);
+    showToast(`Data persil ${sanitizedAsset.id} (${sanitizedAsset.asetLapangan}) berhasil diperbarui!`);
 
     // Sync to database
-    saveAssetToApi(updatedAsset).catch((err) => {
+    saveAssetToApi(sanitizedAsset).catch((err) => {
       console.error('Failed to sync updated asset to database:', err);
     });
   };

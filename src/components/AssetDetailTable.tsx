@@ -19,6 +19,37 @@ import {
   Lock,
 } from 'lucide-react';
 
+function formatCompleteDate(val: string | undefined | null, fallbackYear?: number, isTerbit?: boolean): string {
+  if (!val || val === '-' || val === 'null' || val === 'undefined') {
+    if (isTerbit && fallbackYear && fallbackYear > 0) {
+      return `31/12/${fallbackYear}`;
+    }
+    return '-';
+  }
+  const str = String(val).trim();
+  if (str === '' || str === '-') {
+    if (isTerbit && fallbackYear && fallbackYear > 0) {
+      return `31/12/${fallbackYear}`;
+    }
+    return '-';
+  }
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y, m, d] = str.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  // DD/MM/YYYY or DD-MM-YYYY
+  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(str)) {
+    const parts = str.split(/[\/\-]/);
+    return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+  }
+  // 4-digit year
+  if (/^\d{4}$/.test(str)) {
+    return `31/12/${str}`;
+  }
+  return str;
+}
+
 interface AssetDetailTableProps {
   assets: AssetItem[];
   selectedIds: string[];
@@ -269,22 +300,24 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
               {/* Scrollable Standard Columns */}
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">UPT</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[200px]">PENGHANTAR / JALUR</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[150px]">ASET LAPANGAN</th>
+              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[160px]">ASET PROPERTI</th>
+              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">ASET CBM</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">DESA</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[110px]">KECAMATAN</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[130px]">BPN (KANTAH)</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 text-right min-w-[85px]">LUAS (m²)</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 text-center min-w-[80px]">PERSIL</th>
+              <th className="py-2.5 px-3 border-r border-emerald-700 text-center min-w-[90px]" title="Jumlah Persil (Opsional)">JML PERSIL</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[140px]">NO SERTIFIKAT</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[100px]">ASSET (SAP)</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">NIB</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[240px]">DOKUMEN & TGL SPS (1-3)</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 text-center min-w-[100px]">TGL TERBIT</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 text-center min-w-[100px]">TGL AKHIR</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">JENIS ASET</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 text-center min-w-[85px]" title="Tahun Sertifikat Terbit / Target">
-                THN TERBIT
+              <th className="py-2.5 px-3 border-r border-emerald-700 text-center min-w-[115px]" title="Tanggal Terbit Sertifikat (Format Lengkap)">
+                TGL TERBIT
               </th>
+              <th className="py-2.5 px-3 border-r border-emerald-700 text-center min-w-[115px]" title="Tanggal Akhir / Target Penyelesaian">
+                TGL AKHIR
+              </th>
+              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">JENIS ASET</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[240px]">KENDALA</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[110px]">ID PERSIL</th>
               <th className="py-2.5 px-3 text-center min-w-[190px] sticky right-0 z-20 bg-emerald-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.2)]">AKSI</th>
@@ -363,9 +396,14 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
                       {item.penghantar || <span className="text-slate-400 italic">-</span>}
                     </td>
 
-                    {/* Aset Lapangan */}
-                    <td className="py-2 px-3 border-r border-slate-200 text-slate-700">
-                      {item.asetLapangan || <span className="text-slate-400 italic">-</span>}
+                    {/* Aset Properti */}
+                    <td className="py-2 px-3 border-r border-slate-200 text-slate-800 font-medium">
+                      {item.asetProperti || item.asetLapangan || <span className="text-slate-400 italic">-</span>}
+                    </td>
+
+                    {/* Aset CBM */}
+                    <td className="py-2 px-3 border-r border-slate-200 text-slate-700 font-mono text-xs">
+                      {item.asetCbm && item.asetCbm !== '-' ? item.asetCbm : <span className="text-slate-400 font-normal italic">-</span>}
                     </td>
 
                     {/* Desa */}
@@ -388,9 +426,15 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
                       {item.luas > 0 ? item.luas.toLocaleString('id-ID') : <span className="text-slate-400 font-normal">-</span>}
                     </td>
 
-                    {/* Persil */}
+                    {/* Jumlah Persil */}
                     <td className="py-2 px-3 border-r border-slate-200 text-center font-mono font-bold text-slate-700">
-                      {item.persil && item.persil !== '-' ? item.persil : <span className="text-slate-400 font-normal italic">-</span>}
+                      {item.persil && item.persil !== '-' ? (
+                        <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded text-xs">
+                          {item.persil}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-normal italic">-</span>
+                      )}
                     </td>
 
                     {/* No Sertifikat */}
@@ -476,26 +520,39 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
                       </div>
                     </td>
 
-                    {/* Tanggal Terbit */}
-                    <td className="py-2 px-3 border-r border-slate-200 text-center font-mono text-slate-700">
-                      {item.tanggalTerbit && item.tanggalTerbit !== '-' ? item.tanggalTerbit : <span className="text-slate-400 italic">-</span>}
+                    {/* Tanggal Terbit (Format Lengkap) */}
+                    <td className="py-2 px-3 border-r border-slate-200 text-center font-mono text-xs">
+                      {(() => {
+                        const display = formatCompleteDate(item.tanggalTerbit, item.tahun, item.tahapan >= 17);
+                        return display !== '-' ? (
+                          <span className="inline-block bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 rounded border border-emerald-200 whitespace-nowrap">
+                            {display}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">-</span>
+                        );
+                      })()}
                     </td>
 
-                    {/* Tanggal Akhir */}
-                    <td className="py-2 px-3 border-r border-slate-200 text-center font-mono text-slate-600">
-                      {item.tanggalAkhir && item.tanggalAkhir !== '-' ? item.tanggalAkhir : <span className="text-slate-400 italic">-</span>}
+                    {/* Tanggal Akhir (Format Lengkap) */}
+                    <td className="py-2 px-3 border-r border-slate-200 text-center font-mono text-xs">
+                      {(() => {
+                        const display = formatCompleteDate(item.tanggalAkhir);
+                        return display !== '-' ? (
+                          <span className="inline-block bg-slate-100 text-slate-700 font-medium px-2 py-0.5 rounded border border-slate-200 whitespace-nowrap">
+                            {display}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">-</span>
+                        );
+                      })()}
                     </td>
 
-                    {/* Kategori */}
+                    {/* Kategori / Jenis Aset */}
                     <td className="py-2 px-3 border-r border-slate-200">
                       <span className="inline-block bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">
                         {item.kategori || '-'}
                       </span>
-                    </td>
-
-                    {/* Tahun */}
-                    <td className="py-2 px-3 border-r border-slate-200 text-center font-semibold text-slate-700">
-                      {item.tahun > 0 ? item.tahun : <span className="text-slate-400 italic">-</span>}
                     </td>
 
                     {/* Kendala */}

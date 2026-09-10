@@ -106,12 +106,13 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
       if (searchTerm.trim() !== '') {
         const query = searchTerm.toLowerCase();
         const matchesQuery =
-          item.asetLapangan.toLowerCase().includes(query) ||
+          (item.asetProperti || item.asetLapangan).toLowerCase().includes(query) ||
+          (item.asetCbm || '').toLowerCase().includes(query) ||
           item.penghantar.toLowerCase().includes(query) ||
           item.desa.toLowerCase().includes(query) ||
           item.kecamatan.toLowerCase().includes(query) ||
           item.bpn.toLowerCase().includes(query) ||
-          item.persil.toLowerCase().includes(query) ||
+          String(item.persil || '').toLowerCase().includes(query) ||
           item.noSertifikat.toLowerCase().includes(query) ||
           item.asset.toLowerCase().includes(query);
         if (!matchesQuery) return false;
@@ -313,7 +314,7 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
       const popupContent = `
         <div style="font-family: 'Plus Jakarta Sans', sans-serif; min-width: 250px; max-width: 310px; color: #1e293b; padding: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
-            <div style="font-weight: 800; font-size: 13px; color: #0f172a;">${item.asetLapangan}</div>
+            <div style="font-weight: 800; font-size: 13px; color: #0f172a;">${item.asetProperti || item.asetLapangan}${item.asetCbm && item.asetCbm !== '-' ? ` [${item.asetCbm}]` : ''}</div>
             ${statusBadge}
           </div>
 
@@ -324,7 +325,7 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; font-size: 11px; margin-bottom: 10px; display: grid; grid-template-columns: 1fr; gap: 4px;">
             <div><strong>Wilayah:</strong> Desa ${item.desa || '-'}, Kec. ${item.kecamatan || '-'}</div>
             <div><strong>Kantah:</strong> ${item.bpn} (${item.ultg})</div>
-            <div><strong>Luas Tanah:</strong> <span style="font-weight: bold; color: #047857;">${(item.luas || 0).toLocaleString('id-ID')} m²</span> (No. Persil: ${item.persil || '-'})</div>
+            <div><strong>Luas Tanah:</strong> <span style="font-weight: bold; color: #047857;">${(item.luas || 0).toLocaleString('id-ID')} m²</span> (Jml Persil: ${item.persil || '-'})</div>
             <div><strong>Sertifikat / NIB:</strong> ${item.noSertifikat !== '-' ? item.noSertifikat : 'Dalam Proses'}</div>
             <div><strong>Koordinat:</strong> <span style="font-family: monospace; font-size: 10px; background-color: #e2e8f0; padding: 1px 4px; border-radius: 4px;">${item.parsedLat.toFixed(6)}, ${item.parsedLng.toFixed(6)}</span></div>
             ${
@@ -432,7 +433,9 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
         },
         properties: {
           id: a.id,
-          asetLapangan: a.asetLapangan,
+          asetProperti: a.asetProperti || a.asetLapangan,
+          asetCbm: a.asetCbm || '-',
+          asetLapangan: a.asetProperti || a.asetLapangan,
           penghantar: a.penghantar,
           ultg: a.ultg,
           bpn: a.bpn,
@@ -440,6 +443,7 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
           kecamatan: a.kecamatan,
           status: a.statusDisplay,
           tahapan: a.tahapan,
+          persil: a.persil || '-',
           luas: a.luas,
           noSertifikat: a.noSertifikat,
           kategori: a.kategori,
@@ -464,10 +468,10 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
   // Copy all coordinates to clipboard
   const handleCopyAllCoordinates = () => {
     const lines = [
-      'ID;Aset Lapangan;Penghantar;ULTG;BPN;Status;Latitude;Longitude',
+      'ID;Aset Properti;Aset CBM;Penghantar;ULTG;BPN;Status;Latitude;Longitude',
       ...filteredAssets.map(
         (a) =>
-          `${a.id};"${a.asetLapangan}";"${a.penghantar}";${a.ultg};"${a.bpn}";${a.statusDisplay};${a.parsedLat};${a.parsedLng}`
+          `${a.id};"${a.asetProperti || a.asetLapangan}";"${a.asetCbm || '-'}";"${a.penghantar}";${a.ultg};"${a.bpn}";${a.statusDisplay};${a.parsedLat};${a.parsedLng}`
       ),
     ].join('\n');
 
@@ -750,8 +754,13 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
                               }`}
                             ></span>
                             <span className="font-bold text-xs text-slate-900 truncate">
-                              {item.asetLapangan}
+                              {item.asetProperti || item.asetLapangan}
                             </span>
+                            {item.asetCbm && item.asetCbm !== '-' && (
+                              <span className="text-[9px] font-mono font-semibold text-slate-600 bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
+                                {item.asetCbm}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[10px] text-slate-500 truncate mt-0.5">
                             {item.penghantar}

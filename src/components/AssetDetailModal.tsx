@@ -59,7 +59,12 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold tracking-tight text-white">{asset.asetLapangan}</h3>
+                <h3 className="text-base font-bold tracking-tight text-white">{asset.asetProperti || asset.asetLapangan}</h3>
+                {asset.asetCbm && asset.asetCbm !== '-' && (
+                  <span className="bg-emerald-800 text-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-600">
+                    CBM: {asset.asetCbm}
+                  </span>
+                )}
                 <span className="bg-emerald-700 text-emerald-100 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-500">
                   {asset.id}
                 </span>
@@ -132,7 +137,7 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
                     -
                   </span>
                 )}
-                <span>Persil: {asset.persil}</span>
+                <span>Jml Persil: {asset.persil || '-'}</span>
               </div>
             </div>
 
@@ -215,6 +220,14 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
               </h4>
               <div className="grid grid-cols-2 gap-2 text-[11px]">
                 <div>
+                  <span className="text-slate-400 block">Aset Properti:</span>
+                  <span className="font-semibold text-slate-800">{asset.asetProperti || asset.asetLapangan}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Aset CBM:</span>
+                  <span className="font-semibold text-slate-800 font-mono">{asset.asetCbm && asset.asetCbm !== '-' ? asset.asetCbm : '-'}</span>
+                </div>
+                <div>
                   <span className="text-slate-400 block">Kantor Pertanahan:</span>
                   <span className="font-semibold text-slate-800">{asset.bpn}</span>
                 </div>
@@ -243,8 +256,20 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
                   <span className="font-semibold text-slate-800">{asset.pic || 'Tim Pokja UPT'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Tahun Terbit / Target:</span>
-                  <span className="font-semibold text-slate-800">{asset.tahun > 0 ? asset.tahun : '-'}</span>
+                  <span className="text-slate-400 block">Tgl Terbit:</span>
+                  <span className="font-semibold text-emerald-800 font-mono">
+                    {asset.tanggalTerbit && asset.tanggalTerbit !== '-'
+                      ? asset.tanggalTerbit
+                      : asset.tahun > 0 && asset.tahapan >= 17
+                      ? `31/12/${asset.tahun}`
+                      : '-'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Tgl Akhir:</span>
+                  <span className="font-semibold text-slate-800 font-mono">
+                    {asset.tanggalAkhir && asset.tanggalAkhir !== '-' ? asset.tanggalAkhir : '-'}
+                  </span>
                 </div>
               </div>
             </div>

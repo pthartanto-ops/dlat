@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { AssetItem, AlasHakType, CategoryType, UnitSummaryData } from '../types';
+import { normalizeAssetToUpperCase } from './textUtils';
 
 export interface ParsedRowResult {
   raw: any;
@@ -147,18 +148,20 @@ export function downloadSampleExcelTemplate() {
     'Jenis Aset',
     'ULTG',
     'Penghantar / Jalur',
-    'Aset Lapangan',
+    'Aset Properti',
+    'Aset CBM',
     'Desa',
     'Kecamatan',
     'Kantah BPN',
     'Alas Hak (SPH / Tanpa SPH)',
     'Tahapan BPN (1-16 atau TERBIT)',
     'Luas Tanah (m2)',
-    'No Persil',
+    'Jumlah Persil',
     'No Sertifikat (jika terbit)',
     'No Asset SAP',
     'NIB',
-    'Tahun',
+    'Tgl Terbit (DD/MM/YYYY)',
+    'Tgl Akhir (DD/MM/YYYY)',
     'Koordinat GPS (Lat, Long)',
     'PIC Petugas Pokja',
     'No Dokumen SPS 1 (Pengukuran)',
@@ -177,17 +180,19 @@ export function downloadSampleExcelTemplate() {
       'ULTG MADIUN',
       'SUTT 150 kV Manisrejo - Nganjuk T.101',
       'Tapak Tower T.101',
+      'CBM-01',
       'Sukomoro',
       'Sukomoro',
       'BPN Kab Nganjuk',
       'SPH',
       '6',
       256,
-      '045.A',
+      1,
       '-',
       '300189201',
       '12.04.05.00124',
-      2024,
+      '-',
+      '31/12/2024',
       '-7.6298, 111.5239',
       'Bpk. Budi Santoso (ULTG Madiun)',
       'SPS.01/12.04/2024/0012',
@@ -204,17 +209,19 @@ export function downloadSampleExcelTemplate() {
       'ULTG MADIUN',
       'SUTT 150 kV Manisrejo - Krapyak T.24',
       'Tapak Tower T.24',
+      'CBM-02',
       'Manisrejo',
       'Taman',
       'BPN Kota Madiun',
       'SPH',
       'TERBIT',
       310,
-      '112.B',
+      1,
       'HP No. 00345/2024',
       '300189202',
       '12.04.05.00125',
-      2024,
+      '18/06/2024',
+      '31/12/2024',
       '-7.6412, 111.5301',
       'Ibu Siti Rahayu (UPT Madiun)',
       'SPS.01/12.01/2024/0045',
@@ -231,17 +238,19 @@ export function downloadSampleExcelTemplate() {
       'ULTG KEDIRI',
       'GI 150 kV Kediri',
       'Switchyard Bay Trafo 3',
+      '-',
       'Ngronggo',
       'Kota',
       'BPN Kota Kediri',
       'SPH',
       '14',
       8500,
-      '012.A',
+      2,
       '-',
       '300189204',
       '12.04.05.00127',
-      2024,
+      '-',
+      '31/12/2024',
       '-7.8164, 112.0118',
       'Bpk. Ahmad Fauzi (ULTG Kediri)',
       'SPS.01/12.05/2024/0078',
@@ -258,17 +267,19 @@ export function downloadSampleExcelTemplate() {
       'ULTG MADIUN',
       'Komplek Perumahan Dinas UPT Madiun',
       'Rumah Dinas Jabatan Manajer UPT',
+      '-',
       'Banjarejo',
       'Taman',
       'BPN Kota Madiun',
       'SPH',
       'TERBIT',
       420,
-      '015.C',
+      1,
       'HP No. 00210/2023',
       '300189206',
       '12.04.05.00130',
-      2023,
+      '15/08/2023',
+      '31/12/2023',
       '-7.6321, 111.5298',
       'Bpk. Eko Prasetyo (Pokja UPT)',
       'SPS.01/12.01/2023/0019',
@@ -285,17 +296,19 @@ export function downloadSampleExcelTemplate() {
       'ULTG BABAT',
       'Lahan Cadangan GITET Babat',
       'Tanah Kosong Buffer Zone GI',
+      '-',
       'Plaosan',
       'Babat',
       'BPN Kab Lamongan',
       'Tanpa SPH',
       '4',
       3800,
-      '089.D',
+      '',
       '-',
       '300189207',
       '12.04.05.00131',
-      2024,
+      '-',
+      '31/12/2025',
       '-7.1128, 112.1636',
       'Bpk. Dwi Cahyono (ULTG Babat)',
       'SPS.01/12.07/2024/0091',
@@ -316,18 +329,20 @@ export function downloadSampleExcelTemplate() {
     { wch: 16 }, // Jenis Aset
     { wch: 16 }, // ULTG
     { wch: 34 }, // Penghantar
-    { wch: 24 }, // Aset Lapangan
+    { wch: 24 }, // Aset Properti
+    { wch: 16 }, // Aset CBM
     { wch: 18 }, // Desa
     { wch: 18 }, // Kecamatan
     { wch: 20 }, // BPN
     { wch: 22 }, // Alas Hak
     { wch: 26 }, // Tahapan
     { wch: 16 }, // Luas
-    { wch: 12 }, // Persil
+    { wch: 14 }, // Jumlah Persil
     { wch: 22 }, // No Sertifikat
     { wch: 16 }, // SAP
     { wch: 18 }, // NIB
-    { wch: 10 }, // Tahun
+    { wch: 16 }, // Tgl Terbit
+    { wch: 16 }, // Tgl Akhir
     { wch: 24 }, // Koordinat GPS
     { wch: 28 }, // PIC Petugas Pokja
     { wch: 26 }, // No Dokumen SPS 1
@@ -405,13 +420,16 @@ export function parseExcelFile(
       }
 
       const penghantar = String(findVal(['penghantar', 'jalur', 'transmisi']) || '').trim();
-      const asetLapangan = String(findVal(['asetlapang', 'lapangan', 'tapak', 'tower', 'lokasi']) || '').trim();
+      const asetProperti = String(
+        findVal(['asetproperti', 'properti', 'asetlapang', 'lapangan', 'tapak', 'tower', 'lokasi']) || ''
+      ).trim();
+      const asetCbm = String(findVal(['asetcbm', 'cbm', 'kodecbm', 'nocbm']) || '').trim();
       const desa = String(findVal(['desa', 'kelurahan']) || '').trim();
       const kecamatan = String(findVal(['kecamatan']) || '').trim();
       const bpn = String(findVal(['bpn', 'kantah', 'pertanahan']) || '').trim();
 
       // If all critical identifying fields are empty, skip this row
-      if (!penghantar && !asetLapangan && !desa && !kecamatan && !bpn && !rawUltg) {
+      if (!penghantar && !asetProperti && !desa && !kecamatan && !bpn && !rawUltg) {
         return;
       }
 
@@ -464,8 +482,9 @@ export function parseExcelFile(
         luas = isNaN(parsed) ? 0 : parsed;
       }
 
-      // No Persil (jika kosong, tetap kosong/'-')
-      const persil = String(findVal(['persil', 'nopersil']) || '').trim();
+      // Jumlah Persil (tidak wajib diisi, berupa jumlah persil e.g. 1, 2)
+      const rawPersil = String(findVal(['jumlahpersil', 'jmlpersil', 'persil', 'nopersil']) || '').trim();
+      const persil = rawPersil || '';
 
       // No Sertifikat (jika kosong, tetap '-')
       const rawNoSertif = String(findVal(['sertifikat', 'nosertifikat', 'sertipikat']) || '').trim();
@@ -606,9 +625,21 @@ export function parseExcelFile(
       // Kendala (jika kosong, tetap kosong)
       const kendala = String(findVal(['kendala', 'keterangan', 'catatan', 'hambatan']) || '').trim();
 
-      // Tanggal & Metadata
-      const tanggalTerbit = String(findVal(['tanggalterbit', 'tglterbit']) || (tahapan >= 17 ? '-' : '-')).trim();
-      const tanggalAkhir = String(findVal(['tanggalakhir', 'tglakhir', 'target']) || '-').trim();
+      // Tanggal & Metadata (Format Tanggal Lengkap DD/MM/YYYY)
+      const rawTglTerbitVal = findVal(['tanggalterbit', 'tglterbit', 'tgl_terbit', 'tglterbitsertifikat', 'terbit', 'thnterbit']);
+      const formattedTglTerbit = formatExcelDateString(rawTglTerbitVal);
+      const tanggalTerbit = (formattedTglTerbit !== '-' ? formattedTglTerbit : (tahapan >= 17 ? (tahun > 0 ? `31/12/${tahun}` : '15/09/2024') : '-')).trim();
+
+      const rawTglAkhirVal = findVal(['tanggalakhir', 'tglakhir', 'tgl_akhir', 'target', 'tanggaltarget']);
+      const formattedTglAkhir = formatExcelDateString(rawTglAkhirVal);
+      const tanggalAkhir = (formattedTglAkhir !== '-' ? formattedTglAkhir : '31/12/2025').trim();
+
+      // Jika tahun belum didapat dari kolom tahun, ekstrak dari tanggal terbit
+      if (tahun === 0 && tanggalTerbit && tanggalTerbit !== '-' && tanggalTerbit.includes('/')) {
+        const parts = tanggalTerbit.split('/');
+        const parsedY = parseInt(parts[parts.length - 1], 10);
+        if (!isNaN(parsedY) && parsedY > 1900) tahun = parsedY;
+      }
       const koordinat = extractCoordinatesFromRow(findVal);
       const pic = String(
         findVal([
@@ -638,7 +669,9 @@ export function parseExcelFile(
         upt: 'UPT MADIUN',
         ultg: ultg || 'ULTG MADIUN',
         penghantar,
-        asetLapangan,
+        asetProperti: asetProperti || '-',
+        asetLapangan: asetProperti || '-',
+        asetCbm: asetCbm || '-',
         desa,
         kecamatan,
         bpn,
@@ -681,7 +714,7 @@ export function parseExcelFile(
 
       parsedResults.push({
         raw: row,
-        item,
+        item: normalizeAssetToUpperCase(item),
         isValid: true,
         warnings,
       });

@@ -17,6 +17,7 @@ import {
   User,
 } from 'lucide-react';
 import { downloadSampleExcelTemplate, parseExcelFile, ParsedRowResult } from '../utils/excelUtils';
+import { normalizeAssetsToUpperCase } from '../utils/textUtils';
 
 interface ExcelImportModalProps {
   isOpen: boolean;
@@ -148,7 +149,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
       return;
     }
     if (parsedRows.length === 0) return;
-    const items = parsedRows.map((r) => r.item);
+    const items = normalizeAssetsToUpperCase(parsedRows.map((r) => r.item));
     onImportAssets(items, importMode);
     handleReset();
     onClose();
@@ -446,7 +447,8 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                           <th className="py-2 px-3">Jenis Aset</th>
                           <th className="py-2 px-3">Unit / ULTG</th>
                           <th className="py-2 px-3">Penghantar / Jalur</th>
-                          <th className="py-2 px-3">Aset Lapangan</th>
+                          <th className="py-2 px-3">Aset Properti</th>
+                          <th className="py-2 px-3">Aset CBM</th>
                           <th className="py-2 px-3">Koordinat (GPS)</th>
                           <th className="py-2 px-3">PIC Pokja</th>
                           <th className="py-2 px-3 text-center">Alas Hak</th>
@@ -475,7 +477,10 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                                 {item.penghantar}
                               </td>
                               <td className="py-1.5 px-3 text-slate-700 whitespace-nowrap">
-                                {item.asetLapangan}
+                                {item.asetProperti || item.asetLapangan}
+                              </td>
+                              <td className="py-1.5 px-3 text-slate-700 whitespace-nowrap font-mono text-xs">
+                                {item.asetCbm && item.asetCbm !== '-' ? item.asetCbm : '-'}
                               </td>
                               <td className="py-1.5 px-3 whitespace-nowrap">
                                 {item.koordinat && item.koordinat !== '-' ? (
