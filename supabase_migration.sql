@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS public.assets (
   ultg TEXT NOT NULL DEFAULT '',
   penghantar TEXT NOT NULL DEFAULT '',
   aset_lapangan TEXT NOT NULL DEFAULT '',
+  aset_properti TEXT DEFAULT '',
+  aset_cbm TEXT DEFAULT '',
   desa TEXT NOT NULL DEFAULT '',
   kecamatan TEXT NOT NULL DEFAULT '',
   bpn TEXT NOT NULL DEFAULT '',
@@ -49,6 +51,10 @@ CREATE TABLE IF NOT EXISTS public.assets (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
+
+-- Kolom tambahan jika tabel assets sudah pernah dibuat:
+ALTER TABLE public.assets ADD COLUMN IF NOT EXISTS aset_properti TEXT DEFAULT '';
+ALTER TABLE public.assets ADD COLUMN IF NOT EXISTS aset_cbm TEXT DEFAULT '';
 
 -- 2. Konfigurasi Row Level Security (RLS) agar dapat diakses oleh anon & authenticated
 ALTER TABLE public.assets ENABLE ROW LEVEL SECURITY;

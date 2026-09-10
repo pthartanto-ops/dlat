@@ -20,6 +20,8 @@ import {
   Edit3,
   Trash2,
   Lock,
+  Paperclip,
+  ExternalLink,
 } from 'lucide-react';
 
 interface AssetDetailModalProps {
@@ -28,6 +30,7 @@ interface AssetDetailModalProps {
   onUpdateTahapan?: (assetId: string, newTahapan: number) => void;
   onOpenEdit?: (asset: AssetItem) => void;
   onDelete?: (asset: AssetItem) => void;
+  onOpenCertificateModal?: (asset: AssetItem) => void;
 }
 
 export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
@@ -36,6 +39,7 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
   onUpdateTahapan,
   onOpenEdit,
   onDelete,
+  onOpenCertificateModal,
 }) => {
   if (!asset) return null;
 
@@ -103,7 +107,7 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
                 {isTerbit ? (
                   <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-md border border-emerald-300">
                     <CheckCircle className="w-4 h-4 text-emerald-700" />
-                    SUDAH TERBIT (SHP)
+                    SERTIFIKAT TERBIT
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-900 font-bold px-2.5 py-1 rounded-md border border-amber-300">
@@ -115,9 +119,30 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
             </div>
 
             <div>
-              <div className="text-[10px] uppercase font-bold text-slate-400">Nomor Sertifikat</div>
-              <div className="mt-1 font-mono font-bold text-slate-900 text-sm">
-                {asset.noSertifikat !== '-' ? asset.noSertifikat : 'Dalam Penerbitan'}
+              <div className="text-[10px] uppercase font-bold text-slate-400">Nomer Sertifikat & Lampiran</div>
+              <div className="mt-1 font-mono font-bold text-slate-900 text-sm flex items-center gap-2">
+                {asset.noSertifikat !== '-' ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenCertificateModal?.(asset)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg border border-emerald-200 hover:border-emerald-400 shadow-2xs transition-all text-xs font-bold cursor-pointer group"
+                    title="Klik untuk melihat dokumen sertifikat"
+                  >
+                    {asset.dokumenSertifikat ? (
+                      <Paperclip className="w-3.5 h-3.5 text-emerald-600 group-hover:rotate-12 transition-transform" />
+                    ) : (
+                      <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    )}
+                    <span className="underline decoration-emerald-300 underline-offset-2 group-hover:decoration-emerald-700">
+                      {asset.noSertifikat}
+                    </span>
+                    <span className="text-[10px] font-normal bg-emerald-200/60 text-emerald-900 px-1.5 py-0.2 rounded font-sans">
+                      {asset.dokumenSertifikat ? 'Lampiran Ada' : 'Lihat Dokumen'}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="text-slate-400 font-sans italic text-xs">Dalam Penerbitan</span>
+                )}
               </div>
             </div>
 
@@ -268,7 +293,16 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
                 <div>
                   <span className="text-slate-400 block">Tgl Akhir:</span>
                   <span className="font-semibold text-slate-800 font-mono">
-                    {asset.tanggalAkhir && asset.tanggalAkhir !== '-' ? asset.tanggalAkhir : '-'}
+                    {(() => {
+                      const hasTerbit = Boolean(
+                        asset.tanggalTerbit &&
+                        asset.tanggalTerbit !== '-' &&
+                        asset.tanggalTerbit.trim() !== '' &&
+                        asset.tanggalTerbit.toLowerCase() !== 'null'
+                      );
+                      if (!hasTerbit) return '-';
+                      return asset.tanggalAkhir && asset.tanggalAkhir !== '-' ? asset.tanggalAkhir : '-';
+                    })()}
                   </span>
                 </div>
               </div>

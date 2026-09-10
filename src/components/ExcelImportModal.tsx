@@ -454,6 +454,8 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                           <th className="py-2 px-3 text-center">Alas Hak</th>
                           <th className="py-2 px-3 text-center">Tahap BPN</th>
                           <th className="py-2 px-3">Dokumen & Tgl SPS</th>
+                          <th className="py-2 px-3 text-center">Tgl Terbit</th>
+                          <th className="py-2 px-3 text-center">Tgl Akhir</th>
                           <th className="py-2 px-3 text-right">Luas (m²)</th>
                           <th className="py-2 px-3">Kantah BPN</th>
                           <th className="py-2 px-3">Status</th>
@@ -489,7 +491,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                                     {item.koordinat}
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] text-slate-400 italic">Belum ada</span>
+                                  <span className="text-[10px] text-slate-400 italic">Kosong</span>
                                 )}
                               </td>
                               <td className="py-1.5 px-3 whitespace-nowrap text-slate-700">
@@ -538,6 +540,24 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                                   </div>
                                 ) : (
                                   <span className="text-[10px] text-slate-400 italic">Belum terbit</span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-3 text-center whitespace-nowrap font-mono text-[11px]">
+                                {item.tanggalTerbit && item.tanggalTerbit !== '-' ? (
+                                  <span className="text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    {item.tanggalTerbit}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 italic">-</span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-3 text-center whitespace-nowrap font-mono text-[11px]">
+                                {item.tanggalTerbit && item.tanggalTerbit !== '-' && item.tanggalAkhir && item.tanggalAkhir !== '-' ? (
+                                  <span className="text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                    {item.tanggalAkhir}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 italic">-</span>
                                 )}
                               </td>
                               <td className="py-1.5 px-3 text-right font-mono text-slate-700">

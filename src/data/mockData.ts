@@ -1,4 +1,5 @@
 import { AssetItem, BpnStageInfo, UnitSummaryData, PicOfficer, CertificationTargetSettings } from '../types';
+import { compareAssetPropertiAsc } from '../utils/textUtils';
 
 export const DEFAULT_TARGET_SETTINGS: CertificationTargetSettings = {
   tahunAnggaran: 2024,
@@ -422,7 +423,7 @@ export function generateRealisticAssets(): AssetItem[] {
       : '-';
     const nibNumber = tahapanNum >= 7 ? `12.${(10 + (i % 8))}.${(100 + (i % 900))}.${(10000 + i)}` : '-';
     const tanggalTerbit = isTerbit ? `${((i % 28) + 1).toString().padStart(2, '0')}/${((i % 12) + 1).toString().padStart(2, '0')}/${yearPublished}` : '-';
-    const tanggalAkhir = `${((i % 28) + 1).toString().padStart(2, '0')}/${((i % 12) + 1).toString().padStart(2, '0')}/2025`;
+    const tanggalAkhir = isTerbit ? `${((i % 28) + 1).toString().padStart(2, '0')}/${((i % 12) + 1).toString().padStart(2, '0')}/2025` : '-';
 
     const kendala = isTerbit ? 'Telah Terbit & Tersimpan di UPT' : kendalaList[i % kendalaList.length];
 
@@ -473,10 +474,14 @@ export function generateRealisticAssets(): AssetItem[] {
       koordinat: `-7.${6000 + (i * 27)}, 111.${5000 + (i * 31)}`,
       pic: ['Budi Santoso (Asman Fasilitas)', 'Rian Pratama (Spv Tanah)', 'Dwi Nugroho (Officer Legal)', 'Siti Rahayu (Staf Perizinan)'][i % 4],
       catatan: isTerbit ? 'Sertifikat fisik telah diserahkan dan diarsipkan di brankas UPT Madiun' : 'Dalam pemantauan berkala Pokja Sertifikasi PLN - Kantah BPN',
+      dokumenSertifikat: isTerbit && i % 6 === 0 ? 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80' : undefined,
+      dokumenSertifikatNama: isTerbit && i % 6 === 0 ? `Scan_${certNumber.replace(/[\/\s]/g, '_')}.jpg` : undefined,
+      dokumenSertifikatType: isTerbit && i % 6 === 0 ? 'image/jpeg' : undefined,
+      dokumenSertifikatUkuran: isTerbit && i % 6 === 0 ? 1420500 : undefined,
     });
 
     counter++;
   }
 
-  return assets;
+  return assets.sort(compareAssetPropertiAsc);
 }

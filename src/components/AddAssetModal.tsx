@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AssetItem, CategoryType, AlasHakType, PicOfficer } from '../types';
-import { X, Plus, Save, UserCheck, FileCheck } from 'lucide-react';
+import { X, Plus, Save, UserCheck, FileCheck, Paperclip, FileText, Upload, Link as LinkIcon, Trash2 } from 'lucide-react';
+import { fileToDataUrl, formatFileSize } from '../services/certificateStorage';
+import { isGoogleDriveUrl, getDrivePreviewUrl, TARGET_DRIVE_ACCOUNT } from '../services/googleDriveService';
 
 interface AddAssetModalProps {
   isOpen: boolean;
@@ -24,6 +26,10 @@ const EMPTY_FORM_DATA = {
   luas: '',
   persil: '',
   noSertifikat: '',
+  dokumenSertifikat: '',
+  dokumenSertifikatNama: '',
+  dokumenSertifikatType: '',
+  dokumenSertifikatUkuran: 0,
   asset: '',
   nib: '',
   kategori: '' as CategoryType | '',
@@ -58,9 +64,28 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleNoSertifikatChange = (val: string) => {
+    const upper = val.toUpperCase();
+    const clean = upper.trim();
+    const isFilled = clean !== '' && clean !== '-' && clean !== '0' && !clean.startsWith('BELUM');
+    setFormData((prev) => ({
+      ...prev,
+      noSertifikat: upper,
+      ...(isFilled && prev.tahapan < 17
+        ? {
+            tahapan: 17,
+            tanggalTerbit: prev.tanggalTerbit && prev.tanggalTerbit !== '-' ? prev.tanggalTerbit : '15/09/2024',
+          }
+        : {}),
+    }));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const isTerbit = formData.tahapan >= 17;
+    const certTrimmed = formData.noSertifikat.trim().toUpperCase();
+    const hasCert = certTrimmed !== '' && certTrimmed !== '-' && certTrimmed !== '0' && !certTrimmed.startsWith('BELUM');
+    const finalTahapan = hasCert ? (formData.tahapan >= 17 ? formData.tahapan : 17) : formData.tahapan;
+    const isTerbit = finalTahapan >= 17;
     const nowId = `AST-MDN-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const chosenAlasHak: AlasHakType = (formData.alasHak as AlasHakType) || '';
@@ -75,8 +100,10 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
     // Format tanggal terbit dan tanggal akhir lengkap (DD/MM/YYYY)
     const rawTglTerbit = formData.tanggalTerbit.trim();
     const finalTglTerbit = rawTglTerbit || (isTerbit ? '15/09/2024' : '-');
+    const hasValidTglTerbit = finalTglTerbit !== '' && finalTglTerbit !== '-';
     const rawTglAkhir = formData.tanggalAkhir.trim();
-    const finalTglAkhir = rawTglAkhir || '31/12/2025';
+    // Aturan bisnis: jika tanggal terbit kosong maka tanggal akhir wajib kosong ('-')
+    const finalTglAkhir = !hasValidTglTerbit ? '-' : (rawTglAkhir || '31/12/2025');
 
     // Derive year from tanggalTerbit or explicit tahun
     let derivedYear = 0;
@@ -92,8 +119,8 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
     const newItem: AssetItem = {
       id: nowId,
       alasHak: chosenAlasHak,
-      tahapan: formData.tahapan,
-      statusDisplay: isTerbit ? 'TERBIT' : `TAHAP ${formData.tahapan}`,
+      tahapan: finalTahapan,
+      statusDisplay: isTerbit ? 'TERBIT' : `TAHAP ${finalTahapan}`,
       upt: (formData.upt || 'UPT MADIUN').toUpperCase().trim(),
       ultg: chosenUltg.toUpperCase().trim(),
       penghantar: (formData.penghantar || '-').toUpperCase().trim(),
@@ -112,21 +139,21 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
         spsNo: (formData.sps1No.trim() || '-').toUpperCase(),
         tanggalSps: formData.sps1Date.trim() || '-',
         amount: 0,
-        isPaid: Boolean(formData.sps1Date.trim() || formData.tahapan >= 5),
+        isPaid: Boolean(formData.sps1Date.trim() || finalTahapan >= 5),
         paymentDate: formData.sps1Date.trim() || undefined,
       },
       sps2: {
         spsNo: (formData.sps2No.trim() || '-').toUpperCase(),
         tanggalSps: formData.sps2Date.trim() || '-',
         amount: 0,
-        isPaid: Boolean(formData.sps2Date.trim() || formData.tahapan >= 9),
+        isPaid: Boolean(formData.sps2Date.trim() || finalTahapan >= 9),
         paymentDate: formData.sps2Date.trim() || undefined,
       },
       sps3: {
         spsNo: (formData.sps3No.trim() || '-').toUpperCase(),
         tanggalSps: formData.sps3Date.trim() || '-',
         amount: 0,
-        isPaid: Boolean(formData.sps3Date.trim() || formData.tahapan >= 14),
+        isPaid: Boolean(formData.sps3Date.trim() || finalTahapan >= 14),
         paymentDate: formData.sps3Date.trim() || undefined,
       },
       totalPnbp: 0,
@@ -137,6 +164,10 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
       kendala: (formData.kendala.trim() ? formData.kendala.trim() : 'LANCAR TANPA KENDALA').toUpperCase(),
       koordinat: formData.koordinat.trim() || '',
       pic: (formData.pic.trim() || (picOfficers[0]?.nama ? `${picOfficers[0].nama} (${picOfficers[0].unit})` : 'TIM POKJA SERTIFIKASI UPT')).toUpperCase().trim(),
+      dokumenSertifikat: formData.dokumenSertifikat || undefined,
+      dokumenSertifikatNama: formData.dokumenSertifikatNama || undefined,
+      dokumenSertifikatType: formData.dokumenSertifikatType || undefined,
+      dokumenSertifikatUkuran: formData.dokumenSertifikatUkuran || undefined,
     };
 
     onAddAsset(newItem);
@@ -319,7 +350,7 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                 <option value={14}>14. Pembayaran SPS 3</option>
                 <option value={15}>15. Pembukuan Hak</option>
                 <option value={16}>16. Pembayaran PNBP 3</option>
-                <option value={17}>17. SUDAH TERBIT (Sertifikat Selesai)</option>
+                <option value={17}>17. SERTIFIKAT TERBIT</option>
               </select>
             </div>
 
@@ -358,7 +389,15 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
               <input
                 type="text"
                 value={formData.tanggalTerbit}
-                onChange={(e) => setFormData({ ...formData, tanggalTerbit: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const isKosong = !val.trim() || val.trim() === '-';
+                  setFormData((prev) => ({
+                    ...prev,
+                    tanggalTerbit: val,
+                    ...(isKosong ? { tanggalAkhir: '' } : {}),
+                  }));
+                }}
                 placeholder="Contoh: 15/09/2024"
                 className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 font-mono focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
@@ -368,13 +407,34 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
               <label className="block font-bold text-slate-700 mb-1">
                 Tgl Akhir / Target (Format Lengkap: DD/MM/YYYY)
               </label>
-              <input
-                type="text"
-                value={formData.tanggalAkhir}
-                onChange={(e) => setFormData({ ...formData, tanggalAkhir: e.target.value })}
-                placeholder="Contoh: 31/12/2025"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 font-mono focus:bg-white focus:border-emerald-600 focus:outline-none"
-              />
+              {(() => {
+                const hasTglTerbit = Boolean(
+                  formData.tanggalTerbit &&
+                  formData.tanggalTerbit.trim() !== '' &&
+                  formData.tanggalTerbit.trim() !== '-'
+                );
+                return (
+                  <div>
+                    <input
+                      type="text"
+                      disabled={!hasTglTerbit}
+                      value={hasTglTerbit ? formData.tanggalAkhir : ''}
+                      onChange={(e) => setFormData({ ...formData, tanggalAkhir: e.target.value })}
+                      placeholder={!hasTglTerbit ? '- (Wajib isi Tgl Terbit dahulu)' : 'Contoh: 31/12/2025'}
+                      className={`w-full border rounded-lg p-2 font-mono focus:outline-none ${
+                        !hasTglTerbit
+                          ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                          : 'bg-slate-50 border-slate-300 text-slate-800 focus:bg-white focus:border-emerald-600'
+                      }`}
+                    />
+                    {!hasTglTerbit && (
+                      <p className="text-[10px] text-amber-700 mt-1 italic">
+                        * Wajib kosong karena Tanggal Terbit belum terisi.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div>
@@ -408,6 +468,116 @@ export const AddAssetModal: React.FC<AddAssetModalProps> = ({
                 placeholder="Contoh: 12.04.05.00999"
                 className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:bg-white focus:border-emerald-600 focus:outline-none"
               />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-bold text-slate-700">Nomer Sertifikat (Opsional)</label>
+                <span className="text-[10px] text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                  Otomatis Terbit jika terisi
+                </span>
+              </div>
+              <input
+                type="text"
+                value={formData.noSertifikat}
+                onChange={(e) => handleNoSertifikatChange(e.target.value)}
+                placeholder="Contoh: HP NO. 00124/2024 ATAU -"
+                className="w-full uppercase bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 font-mono focus:bg-white focus:border-emerald-600 focus:outline-none"
+              />
+
+              {/* Lampiran Dokumen Sertifikat */}
+              <div className="mt-2 p-2.5 bg-emerald-50/50 rounded-lg border border-emerald-200/70">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold text-emerald-900 flex items-center gap-1">
+                    <Paperclip className="w-3.5 h-3.5 text-emerald-700" />
+                    Lampirkan Dokumen Sertifikat (Scan PDF / Gambar / Link)
+                  </span>
+                </div>
+
+                {formData.dokumenSertifikat ? (
+                  <div className="flex items-center justify-between bg-white p-2 rounded border border-emerald-300 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span className="font-semibold text-slate-800 truncate" title={formData.dokumenSertifikatNama}>
+                        {formData.dokumenSertifikatNama || 'Dokumen Sertifikat Terlampir'}
+                      </span>
+                      {formData.dokumenSertifikatUkuran ? (
+                        <span className="text-[10px] text-slate-500">
+                          ({formatFileSize(formData.dokumenSertifikatUkuran)})
+                        </span>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          dokumenSertifikat: '',
+                          dokumenSertifikatNama: '',
+                          dokumenSertifikatType: '',
+                          dokumenSertifikatUkuran: 0,
+                        }))
+                      }
+                      className="text-red-600 hover:text-red-800 p-1 text-[11px] font-semibold"
+                      title="Hapus Lampiran"
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="flex-1 cursor-pointer">
+                      <input
+                        type="file"
+                        accept=".pdf,image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={async (e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            const f = e.target.files[0];
+                            const url = await fileToDataUrl(f);
+                            setFormData((prev) => ({
+                              ...prev,
+                              dokumenSertifikat: url,
+                              dokumenSertifikatNama: f.name,
+                              dokumenSertifikatType: f.type,
+                              dokumenSertifikatUkuran: f.size,
+                            }));
+                          }
+                        }}
+                      />
+                      <span className="inline-flex items-center justify-center gap-1.5 w-full bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-lg py-1.5 px-2 text-xs font-semibold shadow-2xs transition-colors">
+                        <Upload className="w-3.5 h-3.5" />
+                        Pilih Berkas Scan (PDF / Foto)
+                      </span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = prompt(`Masukkan tautan Google Drive / Cloud Dokumen Sertifikat (${TARGET_DRIVE_ACCOUNT}):`);
+                        if (link && link.trim()) {
+                          const cleanLink = link.trim();
+                          const formatted = isGoogleDriveUrl(cleanLink) ? getDrivePreviewUrl(cleanLink) : cleanLink;
+                          setFormData((prev) => ({
+                            ...prev,
+                            dokumenSertifikat: formatted,
+                            dokumenSertifikatNama: isGoogleDriveUrl(cleanLink)
+                              ? `Google Drive Sertifikat ${prev.noSertifikat || ''}`.trim()
+                              : `Tautan Sertifikat ${prev.noSertifikat || ''}`.trim(),
+                            dokumenSertifikatType: isGoogleDriveUrl(cleanLink) ? 'application/pdf' : 'text/html',
+                            dokumenSertifikatUkuran: 0,
+                          }));
+                        }
+                      }}
+                      className="inline-flex items-center justify-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg py-1.5 px-2.5 text-xs font-semibold shadow-2xs transition-colors"
+                      title="Tautkan link Google Drive"
+                    >
+                      <LinkIcon className="w-3 h-3 text-slate-500" />
+                      Link Drive
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Dokumen & Tanggal Terbit SPS 1-3 (Opsional) */}

@@ -161,9 +161,52 @@ export async function checkSupabaseTableClient(): Promise<SupabaseTableStatus> {
 }
 
 /**
+ * Set of columns that might be missing in the remote Supabase schema cache.
+ * By default, 'aset_cbm' and 'aset_properti' are flagged as missing unless the user has executed
+ * the migration script in their Supabase project.
+ */
+const knownMissingColumns = new Set<string>([
+  'aset_cbm',
+  'aset_properti',
+  'dokumen_sertifikat',
+  'dokumen_sertifikat_nama',
+  'dokumen_sertifikat_type',
+  'dokumen_sertifikat_ukuran',
+]);
+
+/**
  * Converts a Supabase database row (snake_case) to client AssetItem
  */
 export function supabaseRowToAssetItem(row: any): AssetItem {
+  let asetCbm = row.aset_cbm || '';
+  let catatan = row.catatan || '';
+
+  // Fallback: If aset_cbm column is not present in PostgreSQL, extract from [CBM: ...] tag in catatan
+  if (!asetCbm && catatan && catatan.includes('[CBM:')) {
+    const match = catatan.match(/\[CBM:\s*([^\]]+)\]/i);
+    if (match) {
+      asetCbm = match[1].trim();
+      catatan = catatan.replace(/\[CBM:\s*[^\]]+\]/i, '').trim();
+    }
+  }
+
+  // Fallback: If dokumen_sertifikat column is not present in PostgreSQL, extract from [DOK_SERTIFIKAT: ...] tag in catatan
+  let dokumenSertifikat = row.dokumen_sertifikat || '';
+  let dokumenSertifikatNama = row.dokumen_sertifikat_nama || '';
+
+  if (!dokumenSertifikat && catatan && catatan.includes('[DOK_SERTIFIKAT:')) {
+    const match = catatan.match(/\[DOK_SERTIFIKAT:\s*([^\]|]+)(?:\|([^\]]+))?\]/i);
+    if (match) {
+      if (match[2]) {
+        dokumenSertifikatNama = match[1].trim();
+        dokumenSertifikat = match[2].trim();
+      } else {
+        dokumenSertifikat = match[1].trim();
+      }
+      catatan = catatan.replace(/\[DOK_SERTIFIKAT:\s*[^\]]+\]/i, '').trim();
+    }
+  }
+
   return {
     id: row.id,
     alasHak: (row.alas_hak || '') as any,
@@ -174,7 +217,7 @@ export function supabaseRowToAssetItem(row: any): AssetItem {
     penghantar: row.penghantar || '',
     asetProperti: row.aset_properti || row.aset_lapangan || '',
     asetLapangan: row.aset_properti || row.aset_lapangan || '',
-    asetCbm: row.aset_cbm || '',
+    asetCbm: asetCbm,
     desa: row.desa || '',
     kecamatan: row.kecamatan || '',
     bpn: row.bpn || '',
@@ -209,21 +252,49 @@ export function supabaseRowToAssetItem(row: any): AssetItem {
     },
     totalPnbp: Number(row.total_pnbp ?? 0),
     tanggalTerbit: row.tanggal_terbit || '-',
-    tanggalAkhir: row.tanggal_akhir || '-',
+    tanggalAkhir: (() => {
+      const rawTgl = row.tanggal_terbit || '-';
+      const hasTerbit = rawTgl !== '' && rawTgl !== '-' && rawTgl.toLowerCase() !== 'null';
+      return hasTerbit ? (row.tanggal_akhir || '-') : '-';
+    })(),
     kategori: row.kategori || 'TOWER',
     tahun: Number(row.tahun ?? 2024),
     kendala: row.kendala || '',
     koordinat: row.koordinat || '',
     pic: row.pic || '',
-    catatan: row.catatan || '',
+    catatan: catatan,
+    dokumenSertifikat: dokumenSertifikat || undefined,
+    dokumenSertifikatNama: dokumenSertifikatNama || undefined,
   };
 }
 
 /**
- * Converts client AssetItem to Supabase row format (snake_case)
+ * Converts client AssetItem to Supabase row format (snake_case),
+ * safely omitting columns that do not exist in the remote PostgreSQL table.
  */
 export function assetItemToSupabaseRow(item: AssetItem): any {
-  return {
+  let finalCatatan = item.catatan || '';
+
+  // If aset_cbm column is not present in PostgreSQL schema, encode CBM into catatan so data is never lost
+  if (knownMissingColumns.has('aset_cbm') && item.asetCbm && item.asetCbm !== '-') {
+    if (!finalCatatan.includes('[CBM:')) {
+      finalCatatan = finalCatatan ? `${finalCatatan} [CBM: ${item.asetCbm}]` : `[CBM: ${item.asetCbm}]`;
+    }
+  }
+
+  // If dokumen_sertifikat column is not present in PostgreSQL schema, encode URL into catatan if it's a URL/link
+  if (item.dokumenSertifikat) {
+    if (!finalCatatan.includes('[DOK_SERTIFIKAT:')) {
+      const docName = item.dokumenSertifikatNama || 'Dokumen';
+      if (item.dokumenSertifikat.length < 2000) {
+        finalCatatan = finalCatatan
+          ? `${finalCatatan} [DOK_SERTIFIKAT: ${docName}|${item.dokumenSertifikat}]`
+          : `[DOK_SERTIFIKAT: ${docName}|${item.dokumenSertifikat}]`;
+      }
+    }
+  }
+
+  const row: any = {
     id: item.id,
     alas_hak: item.alasHak || '',
     tahapan: item.tahapan ?? 0,
@@ -232,8 +303,6 @@ export function assetItemToSupabaseRow(item: AssetItem): any {
     ultg: item.ultg || '',
     penghantar: item.penghantar || '',
     aset_lapangan: item.asetProperti || item.asetLapangan || '',
-    aset_properti: item.asetProperti || item.asetLapangan || '',
-    aset_cbm: item.asetCbm || '',
     desa: item.desa || '',
     kecamatan: item.kecamatan || '',
     bpn: item.bpn || '',
@@ -259,15 +328,72 @@ export function assetItemToSupabaseRow(item: AssetItem): any {
     sps3_receipt_number: item.sps3?.receiptNumber || '',
     total_pnbp: item.totalPnbp ?? 0,
     tanggal_terbit: item.tanggalTerbit || '-',
-    tanggal_akhir: item.tanggalAkhir || '-',
+    tanggal_akhir: (() => {
+      const rawTgl = item.tanggalTerbit || '-';
+      const hasTerbit = rawTgl !== '' && rawTgl !== '-' && rawTgl.toLowerCase() !== 'null';
+      return hasTerbit ? (item.tanggalAkhir || '-') : '-';
+    })(),
     kategori: item.kategori || 'TOWER',
     tahun: item.tahun ?? 2024,
     kendala: item.kendala || '',
     koordinat: item.koordinat || '',
     pic: item.pic || '',
-    catatan: item.catatan || '',
+    catatan: finalCatatan,
     updated_at: new Date().toISOString(),
   };
+
+  // Only include optional columns if they exist in the schema
+  if (!knownMissingColumns.has('aset_properti')) {
+    row.aset_properti = item.asetProperti || item.asetLapangan || '';
+  }
+  if (!knownMissingColumns.has('aset_cbm')) {
+    row.aset_cbm = item.asetCbm || '';
+  }
+
+  return row;
+}
+
+/**
+ * Resilient upsert helper that auto-adapts to PostgreSQL schema cache by stripping any unknown columns
+ */
+async function executeSafeSupabaseUpsertClient(client: any, rows: any[], selectSingle: boolean = false): Promise<{ data?: any; error?: any }> {
+  let currentRows = rows.map((r) => ({ ...r }));
+  let attempts = 0;
+
+  while (attempts < 5) {
+    attempts++;
+    // Clean known missing columns from the payload
+    for (const r of currentRows) {
+      for (const col of knownMissingColumns) {
+        delete r[col];
+      }
+    }
+
+    let query: any = client.from('assets').upsert(selectSingle ? currentRows[0] : currentRows, { onConflict: 'id' });
+    if (selectSingle) {
+      query = query.select().single();
+    }
+
+    const res = await query;
+    if (!res.error) {
+      return { data: res.data };
+    }
+
+    // Check if error is due to an unknown column in schema cache
+    const match = res.error.message?.match(/Could not find the '([^']+)' column/i);
+    if (match && match[1]) {
+      const missingCol = match[1];
+      knownMissingColumns.add(missingCol);
+      for (const r of currentRows) {
+        delete r[missingCol];
+      }
+      continue;
+    }
+
+    return { error: res.error };
+  }
+
+  return { error: new Error('Gagal menyinkronkan data aset ke skema Supabase') };
 }
 
 /**
@@ -432,7 +558,7 @@ export async function savePicOfficersToSupabase(officers: PicOfficer[]): Promise
 export async function upsertAssetDirectToSupabase(asset: AssetItem): Promise<AssetItem> {
   const client = getSupabaseClient();
   const row = assetItemToSupabaseRow(asset);
-  const { error } = await client.from('assets').upsert(row, { onConflict: 'id' });
+  const { error } = await executeSafeSupabaseUpsertClient(client, [row], false);
   if (error) {
     throw error;
   }
@@ -447,7 +573,7 @@ export async function bulkUpsertAssetsDirectToSupabase(assets: AssetItem[]): Pro
   const rows = assets.map(assetItemToSupabaseRow);
   for (let i = 0; i < rows.length; i += 50) {
     const chunk = rows.slice(i, i + 50);
-    const { error } = await client.from('assets').upsert(chunk, { onConflict: 'id' });
+    const { error } = await executeSafeSupabaseUpsertClient(client, chunk, false);
     if (error) throw error;
   }
   return assets.length;
@@ -496,7 +622,7 @@ export async function syncAssetsToSupabaseClient(assets?: AssetItem[]): Promise<
   try {
     for (let i = 0; i < rows.length; i += 50) {
       const chunk = rows.slice(i, i + 50);
-      const { error } = await client.from('assets').upsert(chunk, { onConflict: 'id' });
+      const { error } = await executeSafeSupabaseUpsertClient(client, chunk, false);
       if (error) {
         if (
           error.code === 'PGRST205' ||

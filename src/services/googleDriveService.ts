@@ -18,14 +18,18 @@ export const GOOGLE_DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.scripts',
 ];
 
+export const TARGET_DRIVE_ACCOUNT = 'admumuptmadiun@gmail.com';
+export const CERTIFICATE_FOLDER_NAME = 'SIMAS-TANAH Dokumen Sertifikat PLN UPT Madiun';
+
 // Configure GoogleAuthProvider with Google Drive scopes
 const googleDriveProvider = new GoogleAuthProvider();
 GOOGLE_DRIVE_SCOPES.forEach((scope) => {
   googleDriveProvider.addScope(scope);
 });
-// Request offline access prompt to ensure permissions are granted
+// Request consent and hint target drive account
 googleDriveProvider.setCustomParameters({
   prompt: 'consent',
+  login_hint: TARGET_DRIVE_ACCOUNT,
 });
 
 // Flag to track sign-in state
@@ -311,6 +315,20 @@ export const uploadFileToDrive = async (
   folderId?: string,
   description?: string
 ): Promise<DriveFileItem> => {
+  if (accessToken.startsWith('demo-')) {
+    const demoId = `demo-doc-${Date.now()}`;
+    return {
+      id: demoId,
+      name: file.name,
+      mimeType: file.type || 'application/pdf',
+      size: String(file.size),
+      modifiedTime: new Date().toISOString(),
+      webViewLink: `https://drive.google.com/file/d/${demoId}/view?usp=sharing`,
+      webContentLink: `https://drive.google.com/uc?id=${demoId}&export=download`,
+      description,
+    };
+  }
+
   try {
     const metadata: Record<string, any> = {
       name: file.name,
@@ -486,4 +504,137 @@ export const readDriveFileText = async (accessToken: string, fileId: string): Pr
   }
 
   return res.text();
+};
+
+/**
+ * Make file readable to anyone with the link so it can be previewed without permission issues
+ */
+export const makeFilePubliclyReadable = async (accessToken: string, fileId: string): Promise<boolean> => {
+  if (accessToken.startsWith('demo-') || !fileId || fileId.startsWith('demo-')) {
+    return true;
+  }
+
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        role: 'reader',
+        type: 'anyone',
+      }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Could not set public permission on Google Drive file:', err);
+    return false;
+  }
+};
+
+/**
+ * Extract Google Drive file ID from full URL or return ID if already clean
+ */
+export const extractDriveFileId = (urlOrId: string | null | undefined): string | null => {
+  if (!urlOrId) return null;
+  const str = String(urlOrId).trim();
+  if (/^[a-zA-Z0-9_-]{20,60}$/.test(str)) {
+    return str;
+  }
+  const matchFile = str.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (matchFile && matchFile[1]) return matchFile[1];
+  const matchId = str.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (matchId && matchId[1]) return matchId[1];
+  const matchDoc = str.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+  if (matchDoc && matchDoc[1]) return matchDoc[1];
+  return null;
+};
+
+/**
+ * Check if a URL or string points to a Google Drive file
+ */
+export const isGoogleDriveUrl = (urlOrId: string | null | undefined): boolean => {
+  if (!urlOrId) return false;
+  const str = String(urlOrId).toLowerCase();
+  return str.includes('drive.google.com') || str.includes('docs.google.com') || Boolean(extractDriveFileId(urlOrId));
+};
+
+/**
+ * Format Google Drive preview embed link: https://drive.google.com/file/d/{ID}/preview
+ */
+export const getDrivePreviewUrl = (urlOrId: string | null | undefined): string => {
+  if (!urlOrId) return '';
+  const fileId = extractDriveFileId(urlOrId);
+  if (fileId) {
+    return `https://drive.google.com/file/d/${fileId}/preview`;
+  }
+  return urlOrId;
+};
+
+/**
+ * Upload a land certificate document specifically to the Google Drive of admumuptmadiun@gmail.com
+ * in folder 'SIMAS-TANAH Dokumen Sertifikat PLN UPT Madiun'
+ */
+export const uploadCertificateToDrive = async (
+  accessToken: string,
+  file: File,
+  assetInfo: {
+    noSertifikat?: string;
+    asetProperti?: string;
+    asetLapangan?: string;
+    persil?: string;
+    desa?: string;
+    bpn?: string;
+  }
+): Promise<{
+  fileId: string;
+  webViewLink: string;
+  previewUrl: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+}> => {
+  // 1. Get or create the dedicated app certificates folder in Google Drive
+  const folderId = await getOrCreateAppFolder(accessToken, CERTIFICATE_FOLDER_NAME);
+
+  // 2. Format a clear and standardized file name
+  const rawExt = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '.pdf';
+  const cleanCertNo = (assetInfo.noSertifikat || 'SERTIFIKAT')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .toUpperCase();
+  const cleanDesa = (assetInfo.desa || '')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .toUpperCase();
+  const standardizedName = `SERTIFIKAT_${cleanCertNo}${cleanDesa ? `_${cleanDesa}` : ''}${rawExt}`;
+
+  // 3. Description metadata
+  const desc = `Dokumen sertifikat tanah PLN UPT Madiun. No: ${assetInfo.noSertifikat || '-'}, Objek: ${
+    assetInfo.asetProperti || assetInfo.asetLapangan || '-'
+  }, Desa: ${assetInfo.desa || '-'}, BPN: ${assetInfo.bpn || '-'}. Diunggah ke Google Drive (${TARGET_DRIVE_ACCOUNT}) pada ${new Date().toLocaleString('id-ID')}`;
+
+  const certFile = new File([file], standardizedName, {
+    type: file.type || 'application/pdf',
+  });
+
+  // 4. Upload file to folder
+  const uploaded = await uploadFileToDrive(accessToken, certFile, folderId, desc);
+
+  // 5. Make publicly readable by link for seamless preview
+  await makeFilePubliclyReadable(accessToken, uploaded.id);
+
+  const previewUrl = `https://drive.google.com/file/d/${uploaded.id}/preview`;
+  const webViewLink =
+    uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view?usp=sharing`;
+
+  return {
+    fileId: uploaded.id,
+    webViewLink,
+    previewUrl,
+    fileName: standardizedName,
+    fileSize: uploaded.size ? Number(uploaded.size) : file.size,
+    fileType: file.type || 'application/pdf',
+  };
 };

@@ -327,7 +327,11 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
             <div><strong>Kantah:</strong> ${item.bpn} (${item.ultg})</div>
             <div><strong>Luas Tanah:</strong> <span style="font-weight: bold; color: #047857;">${(item.luas || 0).toLocaleString('id-ID')} m²</span> (Jml Persil: ${item.persil || '-'})</div>
             <div><strong>Sertifikat / NIB:</strong> ${item.noSertifikat !== '-' ? item.noSertifikat : 'Dalam Proses'}</div>
-            <div><strong>Koordinat:</strong> <span style="font-family: monospace; font-size: 10px; background-color: #e2e8f0; padding: 1px 4px; border-radius: 4px;">${item.parsedLat.toFixed(6)}, ${item.parsedLng.toFixed(6)}</span></div>
+            <div><strong>Koordinat:</strong> ${
+              item.koordinat && item.koordinat !== '-'
+                ? `<span style="font-family: monospace; font-size: 10px; background-color: #e2e8f0; padding: 1px 4px; border-radius: 4px;">${item.koordinat}</span>`
+                : `<span style="color: #94a3b8; font-style: italic; font-size: 10px;">Kosong (Estimasi Wilayah)</span>`
+            }</div>
             ${
               item.kendala && item.kendala !== '-' && !item.kendala.toLowerCase().includes('lancar')
                 ? `<div style="color: #b91c1c; font-size: 10px; margin-top: 4px; border-top: 1px dashed #cbd5e1; padding-top: 4px;"><strong>Kendala:</strong> ${item.kendala}</div>`
@@ -785,7 +789,11 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
                         </span>
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-[9px] text-slate-400">
-                            {item.parsedLat.toFixed(4)}, {item.parsedLng.toFixed(4)}
+                            {item.koordinat && item.koordinat !== '-' ? (
+                              item.koordinat
+                            ) : (
+                              <span className="italic text-slate-400">Kosong</span>
+                            )}
                           </span>
                           <button
                             type="button"

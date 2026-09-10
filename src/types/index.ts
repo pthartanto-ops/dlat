@@ -80,6 +80,10 @@ export interface AssetItem {
   koordinat?: string;
   pic?: string;
   catatan?: string;
+  dokumenSertifikat?: string; // URL, Link Drive, atau Data URL berkas sertifikat
+  dokumenSertifikatNama?: string; // Nama file dokumen sertifikat
+  dokumenSertifikatType?: string; // Tipe MIME berkas (e.g. application/pdf, image/jpeg)
+  dokumenSertifikatUkuran?: number; // Ukuran berkas dalam bytes
 }
 
 export interface FilterState {

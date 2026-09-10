@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS public.assets (
   ultg TEXT NOT NULL DEFAULT '',
   penghantar TEXT NOT NULL DEFAULT '',
   aset_lapangan TEXT NOT NULL DEFAULT '',
+  aset_properti TEXT DEFAULT '',
+  aset_cbm TEXT DEFAULT '',
   desa TEXT NOT NULL DEFAULT '',
   kecamatan TEXT NOT NULL DEFAULT '',
   bpn TEXT NOT NULL DEFAULT '',
@@ -188,6 +190,10 @@ CREATE TABLE IF NOT EXISTS public.assets (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
+
+-- Tambahkan kolom opsional jika tabel sebelumnya sudah pernah dibuat:
+ALTER TABLE public.assets ADD COLUMN IF NOT EXISTS aset_properti TEXT DEFAULT '';
+ALTER TABLE public.assets ADD COLUMN IF NOT EXISTS aset_cbm TEXT DEFAULT '';
 
 -- 2. Konfigurasi Izin Akses (Row Level Security)
 ALTER TABLE public.assets ENABLE ROW LEVEL SECURITY;

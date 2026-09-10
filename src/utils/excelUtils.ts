@@ -14,10 +14,32 @@ export interface ParsedRowResult {
  * Supports decimal degrees (e.g. "-7.6298, 111.5239"), DMS (e.g. 7°37'47.3"S 111°31'26.0"E),
  * and automatically corrects missing negative signs for Indonesian latitudes.
  */
-export function normalizeCoordinateString(raw: string): string {
-  if (!raw || typeof raw !== 'string') return '';
-  const trimmed = raw.trim();
-  if (!trimmed || trimmed === '-' || trimmed === '0' || trimmed === 'null' || trimmed === 'undefined') return '';
+export function normalizeCoordinateString(raw: any): string {
+  if (raw === undefined || raw === null) return '';
+  const trimmed = String(raw).trim();
+  if (
+    !trimmed ||
+    trimmed === '-' ||
+    trimmed === '--' ||
+    trimmed === '0' ||
+    trimmed === '0,0' ||
+    trimmed === '0, 0' ||
+    trimmed === '0.0, 0.0' ||
+    trimmed === '0.0,0.0' ||
+    trimmed.toLowerCase() === 'null' ||
+    trimmed.toLowerCase() === 'undefined' ||
+    trimmed.toLowerCase() === 'n/a' ||
+    trimmed.toLowerCase() === 'na' ||
+    trimmed.toLowerCase() === 'none' ||
+    trimmed.toLowerCase() === 'kosong' ||
+    trimmed.toLowerCase() === 'nihil' ||
+    trimmed.toLowerCase() === 'belum' ||
+    trimmed.toLowerCase() === 'belum ada' ||
+    trimmed.toLowerCase() === 'tidak ada' ||
+    trimmed.toLowerCase() === 'tbd'
+  ) {
+    return '';
+  }
 
   // 1. Check for DMS (Degrees Minutes Seconds), e.g. 7°37'47.3"S 111°31'26.0"E
   const dmsRegex = /(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([NSEWnsew])/g;
@@ -35,7 +57,7 @@ export function normalizeCoordinateString(raw: string): string {
       if (dir === 'N' || dir === 'S') lat = dec;
       else if (dir === 'E' || dir === 'W') lng = dec;
     }
-    if (lat !== 0 && lng !== 0) {
+    if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) {
       return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     }
   }
@@ -56,7 +78,10 @@ export function normalizeCoordinateString(raw: string): string {
     let lat = parseFloat(match[1]);
     let lng = parseFloat(match[2]);
 
-    if (isNaN(lat) || isNaN(lng)) return trimmed;
+    if (isNaN(lat) || isNaN(lng)) return '';
+
+    // If both 0, treat as empty (Null Island)
+    if (lat === 0 && lng === 0) return '';
 
     // Detect swapped coordinates: Longitude (~110-115) placed before Latitude (-7)
     if (lat > 90 && lng <= 90) {
@@ -71,43 +96,60 @@ export function normalizeCoordinateString(raw: string): string {
       lat = -lat;
     }
 
-    return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    }
   }
 
-  return trimmed;
+  // If not a valid coordinate or empty, default to empty string
+  return '';
 }
 
 /**
  * Extracts coordinate from raw Excel row supporting both combined columns
  * (e.g. "Koordinat", "Titik Koordinat", "GPS", "Lat Long")
  * and separate columns (e.g. "Latitude" & "Longitude", "Lintang" & "Bujur").
+ * If coordinates are empty or absent, returns empty string ''.
  */
 export function extractCoordinatesFromRow(
   findVal: (keys: string[]) => any
 ): string {
   // Check for separate Latitude and Longitude columns first
-  const latVal = findVal(['latitude', 'lintang', 'lat', 'ycoord', 'coordy', 'posisilat']);
-  const lngVal = findVal(['longitude', 'bujur', 'long', 'lng', 'xcoord', 'coordx', 'posisilong']);
+  const rawLat = findVal(['latitude', 'lintang', 'posisilat', 'coordy', 'ycoord']);
+  const rawLng = findVal(['longitude', 'bujur', 'posisilong', 'coordx', 'xcoord']);
+
+  const latStr = rawLat !== undefined && rawLat !== null ? String(rawLat).trim() : '';
+  const lngStr = rawLng !== undefined && rawLng !== null ? String(rawLng).trim() : '';
 
   let rawCoord = '';
-  if (latVal !== '' && lngVal !== '' && latVal !== undefined && lngVal !== undefined) {
-    rawCoord = `${latVal}, ${lngVal}`;
+  if (
+    latStr !== '' &&
+    latStr !== '-' &&
+    latStr !== '0' &&
+    lngStr !== '' &&
+    lngStr !== '-' &&
+    lngStr !== '0'
+  ) {
+    rawCoord = `${latStr}, ${lngStr}`;
   } else {
     // Check for combined coordinate column
+    // NOTE: Avoid loose keywords like 'titik' alone, because in PLN transmission grids
+    // 'Titik Lapangan' / 'Titik Tower' refers to the tower identifier (e.g. T.12), NOT coordinates!
     rawCoord = String(
       findVal([
         'koordinatgps',
         'titikkoordinat',
         'titik_koordinat',
+        'koordinattapak',
+        'koordinattower',
         'koordinat',
         'latlong',
         'latlng',
-        'titiklokasi',
         'lokasigps',
         'posisigps',
-        'coordinate',
+        'gpscoordinate',
         'coordinates',
-        'titik',
+        'coordinate',
         'gps',
       ]) || ''
     ).trim();
@@ -116,29 +158,92 @@ export function extractCoordinatesFromRow(
   return normalizeCoordinateString(rawCoord);
 }
 
-function formatExcelDateString(val: any): string {
+export function formatExcelDateString(val: any): string {
   if (val === undefined || val === null || val === '') return '-';
-  if (typeof val === 'string') {
-    const trimmed = val.trim();
-    return trimmed === '' ? '-' : trimmed;
-  }
-  if (typeof val === 'number') {
-    // Check if it's an Excel serial date (e.g. 35000 - 65000)
-    if (val > 25569 && val < 65000) {
-      const date = new Date((val - 25569) * 86400 * 1000);
-      const day = String(date.getUTCDate()).padStart(2, '0');
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const year = date.getUTCFullYear();
-      return `${day}/${month}/${year}`;
-    }
-    return String(val);
-  }
+
+  // 1. Instance of Date
   if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '-';
     const day = String(val.getDate()).padStart(2, '0');
     const month = String(val.getMonth() + 1).padStart(2, '0');
     const year = val.getFullYear();
     return `${day}/${month}/${year}`;
   }
+
+  // 2. Number: Excel serial date
+  // Serial 1 = 1900-01-01, Serial 25569 = 1970-01-01, Serial 2958465 = 9999-12-31
+  if (typeof val === 'number') {
+    if (val >= 1 && val <= 2958465) {
+      // Offset from Unix epoch 1970-01-01
+      const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+      if (!isNaN(date.getTime())) {
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const year = date.getUTCFullYear();
+        return `${day}/${month}/${year}`;
+      }
+    }
+    return String(val);
+  }
+
+  // 3. String date variations
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (
+      trimmed === '' ||
+      trimmed === '-' ||
+      trimmed.toLowerCase() === 'null' ||
+      trimmed.toLowerCase() === 'undefined'
+    ) {
+      return '-';
+    }
+
+    // Numeric Excel serial as string (e.g. "2958465" for 31/12/9999 or "45550")
+    if (/^\d{5,7}$/.test(trimmed)) {
+      const num = parseInt(trimmed, 10);
+      if (num >= 25569 && num <= 2958465) {
+        const date = new Date(Math.round((num - 25569) * 86400 * 1000));
+        if (!isNaN(date.getTime())) {
+          const day = String(date.getUTCDate()).padStart(2, '0');
+          const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+          const year = date.getUTCFullYear();
+          return `${day}/${month}/${year}`;
+        }
+      }
+    }
+
+    // ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss...
+    const isoMatch = trimmed.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:[T\s].*)?$/);
+    if (isoMatch) {
+      const y = isoMatch[1];
+      const m = isoMatch[2].padStart(2, '0');
+      const d = isoMatch[3].padStart(2, '0');
+      return `${d}/${m}/${y}`;
+    }
+
+    // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+    const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (dmyMatch) {
+      let p1 = parseInt(dmyMatch[1], 10);
+      let p2 = parseInt(dmyMatch[2], 10);
+      const y = dmyMatch[3];
+      // Swap if formatted as MM/DD/YYYY
+      if (p1 <= 12 && p2 > 12) {
+        const tmp = p1;
+        p1 = p2;
+        p2 = tmp;
+      }
+      return `${String(p1).padStart(2, '0')}/${String(p2).padStart(2, '0')}/${y}`;
+    }
+
+    // 4-digit year only: e.g. "9999" or "2024"
+    if (/^\d{4}$/.test(trimmed)) {
+      return `31/12/${trimmed}`;
+    }
+
+    return trimmed;
+  }
+
   return String(val).trim() || '-';
 }
 
@@ -157,7 +262,7 @@ export function downloadSampleExcelTemplate() {
     'Tahapan BPN (1-16 atau TERBIT)',
     'Luas Tanah (m2)',
     'Jumlah Persil',
-    'No Sertifikat (jika terbit)',
+    'Nomer Sertifikat (jika terbit)',
     'No Asset SAP',
     'NIB',
     'Tgl Terbit (DD/MM/YYYY)',
@@ -486,9 +591,18 @@ export function parseExcelFile(
       const rawPersil = String(findVal(['jumlahpersil', 'jmlpersil', 'persil', 'nopersil']) || '').trim();
       const persil = rawPersil || '';
 
-      // No Sertifikat (jika kosong, tetap '-')
-      const rawNoSertif = String(findVal(['sertifikat', 'nosertifikat', 'sertipikat']) || '').trim();
+      // Nomer Sertifikat (jika kosong, tetap '-')
+      const rawNoSertif = String(findVal(['sertifikat', 'nosertifikat', 'nomersertifikat', 'nomorsertifikat', 'sertipikat', 'nomorsertipikat', 'nomersertipikat']) || '').trim();
       const noSertifikat = rawNoSertif || '-';
+
+      // Otomatis jika nomer sertifikat terisi maka Tahapan otomatis terisi Terbit
+      const cleanCert = noSertifikat.toUpperCase().trim();
+      const hasValidCert = cleanCert !== '' && cleanCert !== '-' && cleanCert !== '0' && !cleanCert.startsWith('BELUM') && !cleanCert.includes('PROSES') && cleanCert !== 'NULL' && cleanCert !== 'UNDEFINED';
+
+      if (hasValidCert) {
+        tahapan = 17;
+        statusDisplay = 'TERBIT';
+      }
 
       // SAP Asset (jika kosong, tetap '-')
       const rawAsset = String(findVal(['sap', 'asset', 'noasset', 'assetid']) || '').trim();
@@ -529,10 +643,23 @@ export function parseExcelFile(
       const rawTahun = findVal(['tahun', 'thn']);
       let tahun = 0;
       if (typeof rawTahun === 'number') {
-        tahun = isNaN(rawTahun) ? 0 : rawTahun;
+        // If rawTahun is an Excel date serial (e.g. 2958465 for 31/12/9999 or 45550 for 2024)
+        if (rawTahun >= 25569 && rawTahun <= 2958465) {
+          const d = new Date(Math.round((rawTahun - 25569) * 86400 * 1000));
+          tahun = d.getUTCFullYear();
+        } else {
+          tahun = isNaN(rawTahun) ? 0 : Math.floor(rawTahun);
+        }
       } else if (rawTahun) {
-        const parsed = parseInt(String(rawTahun).replace(/[^0-9]/g, ''), 10);
-        tahun = isNaN(parsed) ? 0 : parsed;
+        const strTahun = String(rawTahun).trim();
+        // Check if string contains a 4-digit year like 9999, 2024, etc.
+        const yearMatch = strTahun.match(/\b(19\d\d|20\d\d|9999)\b/);
+        if (yearMatch) {
+          tahun = parseInt(yearMatch[1], 10);
+        } else {
+          const parsed = parseInt(strTahun.replace(/[^0-9]/g, ''), 10);
+          tahun = isNaN(parsed) ? 0 : parsed;
+        }
       }
 
       // Dokumen & Tanggal Terbit SPS 1, 2, 3 (Surat Perintah Setor BPN)
@@ -626,13 +753,60 @@ export function parseExcelFile(
       const kendala = String(findVal(['kendala', 'keterangan', 'catatan', 'hambatan']) || '').trim();
 
       // Tanggal & Metadata (Format Tanggal Lengkap DD/MM/YYYY)
-      const rawTglTerbitVal = findVal(['tanggalterbit', 'tglterbit', 'tgl_terbit', 'tglterbitsertifikat', 'terbit', 'thnterbit']);
+      const rawTglTerbitVal = findVal([
+        'tanggalterbit',
+        'tglterbit',
+        'tgl_terbit',
+        'tglterbitsertifikat',
+        'terbit',
+        'thnterbit',
+        'tanggalsertifikat',
+        'tglsertifikat',
+        'tglterbitsertipikat',
+        'terbitsertifikat',
+      ]);
       const formattedTglTerbit = formatExcelDateString(rawTglTerbitVal);
-      const tanggalTerbit = (formattedTglTerbit !== '-' ? formattedTglTerbit : (tahapan >= 17 ? (tahun > 0 ? `31/12/${tahun}` : '15/09/2024') : '-')).trim();
+      const tanggalTerbit = (
+        formattedTglTerbit !== '-'
+          ? formattedTglTerbit
+          : tahapan >= 17
+          ? tahun > 0
+            ? `31/12/${tahun}`
+            : '15/09/2024'
+          : '-'
+      ).trim();
 
-      const rawTglAkhirVal = findVal(['tanggalakhir', 'tglakhir', 'tgl_akhir', 'target', 'tanggaltarget']);
+      const rawTglAkhirVal = findVal([
+        'tanggalakhir',
+        'tglakhir',
+        'tgl_akhir',
+        'target',
+        'tanggaltarget',
+        'tgltarget',
+        'masaberlaku',
+        'berlakusd',
+        'berlakusampai',
+        'berlakushingga',
+        'jatuhtempo',
+        'tglberakhir',
+        'tanggalberakhir',
+        'tglselesai',
+        'tanggalselesai',
+        'expired',
+        'expire',
+        'tglkadaluarsa',
+        'kadaluarsa',
+      ]);
       const formattedTglAkhir = formatExcelDateString(rawTglAkhirVal);
-      const tanggalAkhir = (formattedTglAkhir !== '-' ? formattedTglAkhir : '31/12/2025').trim();
+      // Aturan bisnis: jika tanggal terbit kosong maka tanggal akhir wajib kosong ('-')
+      const hasValidTglTerbit =
+        tanggalTerbit !== '' &&
+        tanggalTerbit !== '-' &&
+        tanggalTerbit.toLowerCase() !== 'null' &&
+        tanggalTerbit.toLowerCase() !== 'undefined';
+      const tanggalAkhir = !hasValidTglTerbit
+        ? '-'
+        : (formattedTglAkhir !== '-' ? formattedTglAkhir : '31/12/2025').trim();
 
       // Jika tahun belum didapat dari kolom tahun, ekstrak dari tanggal terbit
       if (tahun === 0 && tanggalTerbit && tanggalTerbit !== '-' && tanggalTerbit.includes('/')) {

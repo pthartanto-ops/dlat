@@ -12,8 +12,9 @@ import { EditAssetModal } from './components/EditAssetModal';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { ClearAllConfirmModal } from './components/ClearAllConfirmModal';
 import { SupabaseModal } from './components/SupabaseModal';
+import { CertificateViewerModal } from './components/CertificateViewerModal';
 import { recalculateAllUnitSummaries, recalculateAllUltgSummaries } from './utils/excelUtils';
-import { normalizeAssetToUpperCase, normalizeAssetsToUpperCase } from './utils/textUtils';
+import { normalizeAssetToUpperCase, normalizeAssetsToUpperCase, compareAssetPropertiAsc } from './utils/textUtils';
 import {
   fetchAssetsFromApi,
   saveAssetToApi,
@@ -93,6 +94,7 @@ export default function App() {
   // Modals and selection
   const [selectedAssetDetail, setSelectedAssetDetail] = useState<AssetItem | null>(null);
   const [editingAsset, setEditingAsset] = useState<AssetItem | null>(null);
+  const [certificateViewerAsset, setCertificateViewerAsset] = useState<AssetItem | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
@@ -452,7 +454,7 @@ export default function App() {
       }
 
       return true;
-    });
+    }).sort(compareAssetPropertiAsc);
   }, [assets, filter, selectedStageFilter]);
 
   // Selection toggle
@@ -604,6 +606,9 @@ export default function App() {
     if (selectedAssetDetail && selectedAssetDetail.id === sanitizedAsset.id) {
       setSelectedAssetDetail(sanitizedAsset);
     }
+    if (certificateViewerAsset && certificateViewerAsset.id === sanitizedAsset.id) {
+      setCertificateViewerAsset(sanitizedAsset);
+    }
     showToast(`Data persil ${sanitizedAsset.id} (${sanitizedAsset.asetLapangan}) berhasil diperbarui!`);
 
     // Sync to database
@@ -714,7 +719,7 @@ export default function App() {
       `"${(a.pic || '').replace(/"/g, '""')}"`,
       a.totalPnbp,
       a.tanggalTerbit,
-      a.tanggalAkhir,
+      a.tanggalTerbit && a.tanggalTerbit !== '-' ? a.tanggalAkhir : '-',
       a.kategori,
       a.tahun,
       `"${a.kendala.replace(/"/g, '""')}"`,
@@ -888,6 +893,7 @@ export default function App() {
               onOpenEditModal={(asset) => setEditingAsset(asset)}
               onDeleteAsset={handleRequestDeleteSingle}
               onDeleteMultiple={handleRequestDeleteMultiple}
+              onOpenCertificateModal={(asset) => setCertificateViewerAsset(asset)}
             />
           </div>
         )}
@@ -1010,6 +1016,21 @@ export default function App() {
         onClose={() => setSelectedAssetDetail(null)}
         onOpenEdit={(asset) => setEditingAsset(asset)}
         onDelete={handleRequestDeleteSingle}
+        onOpenCertificateModal={(asset) => setCertificateViewerAsset(asset)}
+      />
+
+      {/* Certificate Document Viewer & Attachment Modal */}
+      <CertificateViewerModal
+        isOpen={Boolean(certificateViewerAsset)}
+        asset={certificateViewerAsset}
+        onClose={() => setCertificateViewerAsset(null)}
+        onSaveAsset={(updated) => {
+          handleSaveEditedAsset(updated);
+          setCertificateViewerAsset(updated);
+        }}
+        googleUser={googleUser}
+        googleAccessToken={googleAccessToken}
+        onGoogleAuthSuccess={handleGoogleAuthSuccess}
       />
 
       {/* Add Asset Modal */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AssetItem } from '../types';
 import {
   FileCheck,
@@ -17,6 +17,12 @@ import {
   Edit3,
   Trash2,
   Lock,
+  FileText,
+  Paperclip,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  RotateCcw,
 } from 'lucide-react';
 
 function formatCompleteDate(val: string | undefined | null, fallbackYear?: number, isTerbit?: boolean): string {
@@ -33,20 +39,49 @@ function formatCompleteDate(val: string | undefined | null, fallbackYear?: numbe
     }
     return '-';
   }
-  // YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    const [y, m, d] = str.split('-');
+
+  // Check if numeric serial string (e.g. "2958465" for 31/12/9999 or "45550")
+  if (/^\d{5,7}$/.test(str)) {
+    const num = parseInt(str, 10);
+    if (num >= 25569 && num <= 2958465) {
+      const date = new Date(Math.round((num - 25569) * 86400 * 1000));
+      if (!isNaN(date.getTime())) {
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const year = date.getUTCFullYear();
+        return `${day}/${month}/${year}`;
+      }
+    }
+  }
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:[T\s].*)?$/);
+  if (isoMatch) {
+    const y = isoMatch[1];
+    const m = isoMatch[2].padStart(2, '0');
+    const d = isoMatch[3].padStart(2, '0');
     return `${d}/${m}/${y}`;
   }
-  // DD/MM/YYYY or DD-MM-YYYY
-  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(str)) {
-    const parts = str.split(/[\/\-]/);
-    return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (dmyMatch) {
+    let p1 = parseInt(dmyMatch[1], 10);
+    let p2 = parseInt(dmyMatch[2], 10);
+    const y = dmyMatch[3];
+    if (p1 <= 12 && p2 > 12) {
+      const tmp = p1;
+      p1 = p2;
+      p2 = tmp;
+    }
+    return `${String(p1).padStart(2, '0')}/${String(p2).padStart(2, '0')}/${y}`;
   }
+
   // 4-digit year
   if (/^\d{4}$/.test(str)) {
     return `31/12/${str}`;
   }
+
   return str;
 }
 
@@ -59,6 +94,7 @@ interface AssetDetailTableProps {
   onOpenEditModal: (asset: AssetItem) => void;
   onDeleteAsset: (asset: AssetItem) => void;
   onDeleteMultiple: (assets: AssetItem[]) => void;
+  onOpenCertificateModal?: (asset: AssetItem) => void;
 }
 
 export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
@@ -70,12 +106,53 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
   onOpenEditModal,
   onDeleteAsset,
   onDeleteMultiple,
+  onOpenCertificateModal,
 }) => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
+  const [sortColumn, setSortColumn] = useState<string>('asetProperti');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedAssets = useMemo(() => {
+    const list = [...assets];
+    return list.sort((a, b) => {
+      let result = 0;
+      if (sortColumn === 'asetProperti') {
+        const valA = (a.asetProperti || a.asetLapangan || '').trim();
+        const valB = (b.asetProperti || b.asetLapangan || '').trim();
+        result = valA.localeCompare(valB, 'id', { numeric: true, sensitivity: 'base' });
+        if (result === 0) {
+          result = (a.penghantar || '').localeCompare(b.penghantar || '', 'id', { numeric: true, sensitivity: 'base' });
+        }
+      } else if (sortColumn === 'luas') {
+        result = (a.luas || 0) - (b.luas || 0);
+      } else if (sortColumn === 'tahapan') {
+        result = (a.tahapan || 0) - (b.tahapan || 0);
+      } else if (sortColumn === 'totalPnbp') {
+        result = (a.totalPnbp || 0) - (b.totalPnbp || 0);
+      } else if (sortColumn === 'tahun') {
+        result = (a.tahun || 0) - (b.tahun || 0);
+      } else {
+        const key = sortColumn as keyof AssetItem;
+        const strA = String(a[key] ?? '').trim();
+        const strB = String(b[key] ?? '').trim();
+        result = strA.localeCompare(strB, 'id', { numeric: true, sensitivity: 'base' });
+      }
+      return sortDirection === 'asc' ? result : -result;
+    });
+  }, [assets, sortColumn, sortDirection]);
 
   // Pagination calculation
-  const totalItems = assets.length;
+  const totalItems = sortedAssets.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   // Ensure current page is valid
@@ -86,7 +163,7 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
   }, [totalPages, currentPage]);
 
   const startIndex = (currentPage - 1) * pageSize;
-  const paginatedAssets = assets.slice(startIndex, startIndex + pageSize);
+  const paginatedAssets = sortedAssets.slice(startIndex, startIndex + pageSize);
 
   // Format IDR currency
   const formatRp = (num: number) => {
@@ -178,14 +255,46 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
     <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
       {/* Table Header Controls */}
       <div className="px-4 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 border-b border-slate-800">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-            DETAIL REGISTER PERSIL & SERTIFIKASI TANAH
-          </span>
-          <span className="text-slate-500">|</span>
-          <span className="text-xs text-slate-300">
-            Menampilkan <strong className="text-white">{startIndex + 1} - {Math.min(startIndex + pageSize, totalItems)}</strong> dari <strong className="text-white">{totalItems}</strong> Persil
-          </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+              DETAIL REGISTER PERSIL & SERTIFIKASI TANAH
+            </span>
+            <span className="text-slate-500">|</span>
+            <span className="text-xs text-slate-300">
+              Menampilkan <strong className="text-white">{totalItems > 0 ? startIndex + 1 : 0} - {Math.min(startIndex + pageSize, totalItems)}</strong> dari <strong className="text-white">{totalItems}</strong> Persil
+            </span>
+          </div>
+
+          {/* Sort Indicator Pill */}
+          <div className="flex items-center gap-1.5 bg-emerald-950/80 border border-emerald-700/80 px-2.5 py-1 rounded-md text-xs shadow-2xs">
+            <span className="text-slate-400 text-[11px]">Urutan:</span>
+            <span className="font-bold text-amber-300 flex items-center gap-1">
+              {sortColumn === 'asetProperti' ? 'ASET PROPERTI' : sortColumn.toUpperCase()}
+              {sortDirection === 'asc' ? (
+                <ArrowUp className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <ArrowDown className="w-3.5 h-3.5 text-amber-400" />
+              )}
+              <span className="text-[10px] text-emerald-300 font-mono">
+                {sortDirection === 'asc' ? 'ASC (A-Z)' : 'DESC (Z-A)'}
+              </span>
+            </span>
+            {sortColumn !== 'asetProperti' || sortDirection !== 'asc' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSortColumn('asetProperti');
+                  setSortDirection('asc');
+                }}
+                className="ml-1 text-[10px] text-emerald-300 hover:text-white underline flex items-center gap-0.5 cursor-pointer"
+                title="Reset urutan ke ASET PROPERTI Ascending (A-Z)"
+              >
+                <RotateCcw className="w-2.5 h-2.5" />
+                Reset
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex items-center gap-3 text-xs">
@@ -290,24 +399,201 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
                   title="Pilih semua baris halaman ini"
                 />
               </th>
-              <th className="py-2.5 px-3 sticky left-20 z-20 bg-emerald-800 border-r border-emerald-700 min-w-[95px]">
-                ALAS HAK
+              <th
+                onClick={() => handleSort('alasHak')}
+                className={`py-2.5 px-3 sticky left-20 z-20 bg-emerald-800 border-r border-emerald-700 min-w-[95px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'alasHak' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Alas Hak"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>ALAS HAK</span>
+                  {sortColumn === 'alasHak' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
               </th>
-              <th className="py-2.5 px-3 sticky left-[175px] z-20 bg-emerald-800 border-r border-emerald-700 min-w-[110px]">
-                TAHAPAN
+              <th
+                onClick={() => handleSort('tahapan')}
+                className={`py-2.5 px-3 sticky left-[175px] z-20 bg-emerald-800 border-r border-emerald-700 min-w-[110px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'tahapan' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Tahapan BPN"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>TAHAPAN</span>
+                  {sortColumn === 'tahapan' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
               </th>
 
               {/* Scrollable Standard Columns */}
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">UPT</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[200px]">PENGHANTAR / JALUR</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[160px]">ASET PROPERTI</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">ASET CBM</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">DESA</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[110px]">KECAMATAN</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[130px]">BPN (KANTAH)</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 text-right min-w-[85px]">LUAS (m²)</th>
+              <th
+                onClick={() => handleSort('upt')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[120px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'upt' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan UPT / ULTG"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>UPT</span>
+                  {sortColumn === 'upt' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('penghantar')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[200px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'penghantar' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Jalur Penghantar"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>PENGHANTAR / JALUR</span>
+                  {sortColumn === 'penghantar' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
+              {/* Primary Sorted Column: ASET PROPERTI */}
+              <th
+                id="col-sort-aset-properti"
+                onClick={() => handleSort('asetProperti')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[175px] cursor-pointer select-none transition-all shadow-inner ${
+                  sortColumn === 'asetProperti'
+                    ? 'bg-emerald-950/90 ring-1 ring-inset ring-amber-400/60'
+                    : 'hover:bg-emerald-700'
+                }`}
+                title="Urutkan berdasarkan ASET PROPERTI (Klik untuk ubah Ascending / Descending)"
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className={sortColumn === 'asetProperti' ? 'text-amber-300 font-black tracking-wide' : 'text-white font-bold'}>
+                    ASET PROPERTI
+                  </span>
+                  {sortColumn === 'asetProperti' ? (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-400 text-slate-950 shadow-2xs">
+                      {sortDirection === 'asc' ? (
+                        <>
+                          <ArrowUp className="w-3 h-3 stroke-[2.5]" /> ASC
+                        </>
+                      ) : (
+                        <>
+                          <ArrowDown className="w-3 h-3 stroke-[2.5]" /> DESC
+                        </>
+                      )}
+                    </span>
+                  ) : (
+                    <ArrowUpDown className="w-3.5 h-3.5 text-emerald-400/60" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('asetCbm')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[120px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'asetCbm' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Aset CBM"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>ASET CBM</span>
+                  {sortColumn === 'asetCbm' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('desa')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[120px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'desa' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Desa"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>DESA</span>
+                  {sortColumn === 'desa' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('kecamatan')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[110px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'kecamatan' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Kecamatan"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>KECAMATAN</span>
+                  {sortColumn === 'kecamatan' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('bpn')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[130px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'bpn' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Kantah BPN"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>BPN (KANTAH)</span>
+                  {sortColumn === 'bpn' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('luas')}
+                className={`py-2.5 px-3 border-r border-emerald-700 text-right min-w-[85px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'luas' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Luas Tanah"
+              >
+                <div className="flex items-center justify-end gap-1">
+                  {sortColumn === 'luas' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                  <span>LUAS (m²)</span>
+                </div>
+              </th>
               <th className="py-2.5 px-3 border-r border-emerald-700 text-center min-w-[90px]" title="Jumlah Persil (Opsional)">JML PERSIL</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[140px]">NO SERTIFIKAT</th>
+              <th
+                onClick={() => handleSort('noSertifikat')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[140px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'noSertifikat' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Nomor Sertifikat"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>NOMER SERTIFIKAT</span>
+                  {sortColumn === 'noSertifikat' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[100px]">ASSET (SAP)</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">NIB</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[240px]">DOKUMEN & TGL SPS (1-3)</th>
@@ -319,7 +605,22 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
               </th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[120px]">JENIS ASET</th>
               <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[240px]">KENDALA</th>
-              <th className="py-2.5 px-3 border-r border-emerald-700 min-w-[110px]">ID PERSIL</th>
+              <th
+                onClick={() => handleSort('id')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[110px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'id' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan ID Persil"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>ID PERSIL</span>
+                  {sortColumn === 'id' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
               <th className="py-2.5 px-3 text-center min-w-[190px] sticky right-0 z-20 bg-emerald-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.2)]">AKSI</th>
             </tr>
           </thead>
@@ -440,11 +741,67 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
                     {/* No Sertifikat */}
                     <td className="py-2 px-3 border-r border-slate-200 font-mono">
                       {item.noSertifikat && item.noSertifikat !== '-' ? (
-                        <span className="text-emerald-800 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                          {item.noSertifikat}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onOpenCertificateModal) {
+                              onOpenCertificateModal(item);
+                            } else {
+                              onOpenDetailModal(item);
+                            }
+                          }}
+                          className="group inline-flex items-center gap-1.5 text-emerald-800 font-bold bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-950 px-2 py-0.5 rounded border border-emerald-200 hover:border-emerald-400 shadow-2xs hover:shadow-xs transition-all text-left cursor-pointer"
+                          title={
+                            item.dokumenSertifikat
+                              ? `Buka & Pratinjau Dokumen: ${item.dokumenSertifikatNama || item.noSertifikat}`
+                              : `Klik untuk Pratinjau / Unggah Dokumen ke Google Drive admumuptmadiun@gmail.com`
+                          }
+                        >
+                          {item.dokumenSertifikat ? (
+                            <Paperclip className="w-3.5 h-3.5 text-emerald-600 shrink-0 group-hover:rotate-12 transition-transform" />
+                          ) : (
+                            <FileText className="w-3 h-3 text-emerald-600/70 shrink-0 group-hover:text-emerald-800" />
+                          )}
+                          <span className="underline decoration-emerald-300 underline-offset-2 group-hover:decoration-emerald-700">
+                            {item.noSertifikat}
+                          </span>
+                          {item.dokumenSertifikat && (
+                            <span
+                              className="inline-flex items-center px-1 py-0.2 bg-emerald-600 text-white text-[9px] font-bold rounded-sm uppercase tracking-wider"
+                              title="Dokumen tersimpan dan siap dipratinjau"
+                            >
+                              Drive
+                            </span>
+                          )}
+                        </button>
                       ) : (
-                        <span className="text-slate-400 italic">Belum terbit</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onOpenCertificateModal) {
+                              onOpenCertificateModal(item);
+                            } else {
+                              onOpenDetailModal(item);
+                            }
+                          }}
+                          className="group inline-flex items-center gap-1 text-slate-500 hover:text-emerald-800 hover:bg-emerald-50/70 px-1.5 py-0.5 rounded transition-all text-left cursor-pointer"
+                          title="Klik untuk melihat pratinjau / melampirkan berkas alas hak ke Google Drive"
+                        >
+                          {item.dokumenSertifikat ? (
+                            <>
+                              <Paperclip className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span className="text-emerald-700 font-medium text-[11px] underline">
+                                {item.dokumenSertifikatNama || 'Dokumen Terlampir'}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px] group-hover:underline">
+                              Belum terbit
+                            </span>
+                          )}
+                        </button>
                       )}
                     </td>
 
@@ -537,6 +894,16 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
                     {/* Tanggal Akhir (Format Lengkap) */}
                     <td className="py-2 px-3 border-r border-slate-200 text-center font-mono text-xs">
                       {(() => {
+                        // Aturan bisnis: jika tanggal terbit kosong maka tanggal akhir wajib kosong
+                        const hasTglTerbit = Boolean(
+                          item.tanggalTerbit &&
+                          item.tanggalTerbit !== '-' &&
+                          item.tanggalTerbit.trim() !== '' &&
+                          item.tanggalTerbit.toLowerCase() !== 'null'
+                        );
+                        if (!hasTglTerbit) {
+                          return <span className="text-slate-400 italic">-</span>;
+                        }
                         const display = formatCompleteDate(item.tanggalAkhir);
                         return display !== '-' ? (
                           <span className="inline-block bg-slate-100 text-slate-700 font-medium px-2 py-0.5 rounded border border-slate-200 whitespace-nowrap">
