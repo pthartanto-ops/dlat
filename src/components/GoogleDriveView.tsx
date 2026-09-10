@@ -177,10 +177,16 @@ export const GoogleDriveView: React.FC<GoogleDriveViewProps> = ({
         });
       }
     } catch (error: any) {
-      console.error('Login error:', error);
       const errMsg = error?.message || '';
       const errCode = error?.code || '';
-      if (errCode === 'auth/unauthorized-domain' || errMsg.includes('unauthorized-domain')) {
+      if (errCode === 'auth/popup-closed-by-user') {
+        console.info('Login popup closed by user or blocked by browser.');
+        setStatusMessage({
+          type: 'info',
+          text: 'Jendela otorisasi Google ditutup. Anda dapat mencoba menghubungkan kembali saat siap atau menggunakan opsi token manual di bawah.',
+        });
+      } else if (errCode === 'auth/unauthorized-domain' || errMsg.includes('unauthorized-domain')) {
+        console.error('Login error:', error);
         const domain = typeof window !== 'undefined' ? window.location.hostname : 'domain runtime';
         setUnauthorizedDomain(domain);
         setStatusMessage({
@@ -188,6 +194,7 @@ export const GoogleDriveView: React.FC<GoogleDriveViewProps> = ({
           text: `Domain "${domain}" belum terdaftar di Authorized Domains Firebase Authentication. Silakan daftarkan domain di Firebase Console atau gunakan opsi alternatif di bawah.`,
         });
       } else {
+        console.error('Login error:', error);
         setStatusMessage({
           type: 'error',
           text: errMsg || 'Gagal menghubungkan Google Drive. Silakan coba kembali.',

@@ -562,6 +562,22 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
                 </div>
               </th>
               <th
+                onClick={() => handleSort('koordinat')}
+                className={`py-2.5 px-3 border-r border-emerald-700 min-w-[150px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
+                  sortColumn === 'koordinat' ? 'bg-emerald-900/60' : ''
+                }`}
+                title="Urutkan berdasarkan Titik Koordinat GPS"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span>KOORDINAT GPS</span>
+                  {sortColumn === 'koordinat' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-amber-300" /> : <ArrowDown className="w-3 h-3 text-amber-300" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-emerald-400/40 opacity-40" />
+                  )}
+                </div>
+              </th>
+              <th
                 onClick={() => handleSort('luas')}
                 className={`py-2.5 px-3 border-r border-emerald-700 text-right min-w-[85px] cursor-pointer hover:bg-emerald-700 select-none transition-colors ${
                   sortColumn === 'luas' ? 'bg-emerald-900/60' : ''
@@ -629,7 +645,7 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
           <tbody className="divide-y divide-slate-200">
             {paginatedAssets.length === 0 ? (
               <tr>
-                <td colSpan={23} className="py-12 text-center text-slate-500">
+                <td colSpan={24} className="py-12 text-center text-slate-500">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <AlertCircle className="w-8 h-8 text-slate-400" />
                     <span className="font-semibold text-sm">Tidak ada data persil yang sesuai filter</span>
@@ -720,6 +736,29 @@ export const AssetDetailTable: React.FC<AssetDetailTableProps> = ({
                     {/* BPN */}
                     <td className="py-2 px-3 border-r border-slate-200 text-slate-800 font-medium">
                       {item.bpn || <span className="text-slate-400 italic">-</span>}
+                    </td>
+
+                    {/* Koordinat GPS */}
+                    <td className="py-2 px-3 border-r border-slate-200 font-mono text-xs">
+                      {item.koordinat && item.koordinat.trim() !== '' && item.koordinat !== '-' ? (
+                        <a
+                          href={`https://www.google.com/maps?q=${encodeURIComponent(item.koordinat.replace(/\s+/g, ''))}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1.5 text-emerald-800 hover:text-emerald-950 hover:underline bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 text-[11px] font-semibold transition-colors shadow-2xs"
+                          title="Klik untuk membuka titik koordinat di Google Maps"
+                        >
+                          <MapPin className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span className="truncate max-w-[110px]">{item.koordinat}</span>
+                          <ExternalLink className="w-2.5 h-2.5 text-emerald-600 shrink-0 opacity-75" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-400 italic text-[11px] flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 inline-block"></span>
+                          Belum diisi
+                        </span>
+                      )}
                     </td>
 
                     {/* Luas */}

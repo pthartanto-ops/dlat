@@ -3,19 +3,7 @@ import { auth } from '../lib/firebase';
 import { DriveFileItem, DriveUserInfo, AssetItem, CertificationTargetSettings } from '../types';
 
 export const GOOGLE_DRIVE_SCOPES = [
-  'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/drive.activity',
-  'https://www.googleapis.com/auth/drive.activity.readonly',
-  'https://www.googleapis.com/auth/drive.appdata',
-  'https://www.googleapis.com/auth/drive.apps.readonly',
   'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.install',
-  'https://www.googleapis.com/auth/drive.meet.readonly',
-  'https://www.googleapis.com/auth/drive.metadata',
-  'https://www.googleapis.com/auth/drive.metadata.readonly',
-  'https://www.googleapis.com/auth/drive.photos.readonly',
-  'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/drive.scripts',
 ];
 
 export const TARGET_DRIVE_ACCOUNT = 'admumuptmadiun@gmail.com';
@@ -86,7 +74,11 @@ export const signInWithGoogleDrive = async (
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    console.error('Google Drive sign-in error:', error);
+    if (error?.code === 'auth/popup-closed-by-user') {
+      console.info('Google Drive sign-in popup closed by user or blocked by browser.');
+    } else {
+      console.error('Google Drive sign-in error:', error);
+    }
     throw error;
   } finally {
     isSigningIn = false;
@@ -615,6 +607,53 @@ export const getDrivePreviewUrl = (urlOrId: string | null | undefined): string =
 };
 
 /**
+ * Format nama file sertifikat agar menggunakan Nomor Sertifikat sebagai nama file
+ * yang diunggah ke Google Drive sesuai instruksi pengguna.
+ * Karakter yang tidak valid pada sistem file (/ \ : * ? " < > |) disanitasi secara aman
+ * (misal tanda '/' diubah menjadi '-') sehingga aman saat diunduh atau dipratinjau.
+ */
+export const formatCertificateFileName = (
+  noSertifikat?: string,
+  originalFileName?: string,
+  fallbackInfo?: { asetProperti?: string; asetLapangan?: string; desa?: string }
+): string => {
+  const rawExt =
+    originalFileName && originalFileName.includes('.')
+      ? originalFileName.substring(originalFileName.lastIndexOf('.'))
+      : '.pdf';
+
+  const trimmed = (noSertifikat || '').trim();
+  // Jika nomor sertifikat terisi (bukan strip '-' atau kosong)
+  if (trimmed && trimmed !== '-' && trimmed !== '0') {
+    // Ganti slash/backslash dengan '-' dan hilangkan karakter ilegal sistem berkas
+    const cleanCertNo = trimmed
+      .replace(/[\\/]/g, '-')
+      .replace(/[:*?"<>|]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleanCertNo) {
+      if (cleanCertNo.toLowerCase().endsWith(rawExt.toLowerCase())) {
+        return cleanCertNo;
+      }
+      return `${cleanCertNo}${rawExt}`;
+    }
+  }
+
+  // Fallback jika sertifikat belum memiliki nomor resmi
+  if (fallbackInfo?.asetProperti || fallbackInfo?.asetLapangan) {
+    const objName = (fallbackInfo.asetProperti || fallbackInfo.asetLapangan || '')
+      .replace(/[\\/]/g, '-')
+      .replace(/[:*?"<>|]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return `Sertifikat_${objName}${rawExt}`;
+  }
+
+  return originalFileName || `Sertifikat${rawExt}`;
+};
+
+/**
  * Upload a land certificate document specifically to the Google Drive of admumuptmadiun@gmail.com
  * in folder 'SIMAS-TANAH Dokumen Sertifikat PLN UPT Madiun'
  */
@@ -642,17 +681,12 @@ export const uploadCertificateToDrive = async (
   // 1. Get or create the dedicated app certificates folder in Google Drive
   const folderId = await getOrCreateAppFolder(accessToken, CERTIFICATE_FOLDER_NAME);
 
-  // 2. Format a clear and standardized file name
-  const rawExt = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '.pdf';
-  const cleanCertNo = (assetInfo.noSertifikat || 'SERTIFIKAT')
-    .replace(/[^a-zA-Z0-9]/g, '_')
-    .replace(/_+/g, '_')
-    .toUpperCase();
-  const cleanDesa = (assetInfo.desa || '')
-    .replace(/[^a-zA-Z0-9]/g, '_')
-    .replace(/_+/g, '_')
-    .toUpperCase();
-  const standardizedName = `SERTIFIKAT_${cleanCertNo}${cleanDesa ? `_${cleanDesa}` : ''}${rawExt}`;
+  // 2. Format filename using Nomor Sertifikat as requested
+  const standardizedName = formatCertificateFileName(assetInfo.noSertifikat, file.name, {
+    asetProperti: assetInfo.asetProperti,
+    asetLapangan: assetInfo.asetLapangan,
+    desa: assetInfo.desa,
+  });
 
   // 3. Description metadata
   const desc = `Dokumen sertifikat tanah PLN UPT Madiun. No: ${assetInfo.noSertifikat || '-'}, Objek: ${

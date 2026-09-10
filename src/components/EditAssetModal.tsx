@@ -19,9 +19,19 @@ import {
   Upload,
   Link as LinkIcon,
   Trash2,
+  Locate,
+  Navigation,
+  ExternalLink,
+  Sparkles,
+  Info,
 } from 'lucide-react';
 import { fileToDataUrl, formatFileSize } from '../services/certificateStorage';
-import { isGoogleDriveUrl, getDrivePreviewUrl, TARGET_DRIVE_ACCOUNT } from '../services/googleDriveService';
+import { isGoogleDriveUrl, getDrivePreviewUrl, TARGET_DRIVE_ACCOUNT, formatCertificateFileName } from '../services/googleDriveService';
+import {
+  parseCoordinateInput,
+  getEstimatedRegionCoordinate,
+  getCurrentDeviceLocation,
+} from '../utils/coordinateUtils';
 
 interface EditAssetModalProps {
   isOpen: boolean;
@@ -82,9 +92,57 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
     sps3Paid: false,
   });
 
+  const [isLocatingGps, setIsLocatingGps] = useState(false);
+  const [gpsMessage, setGpsMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const handleGetGpsLocation = async () => {
+    setIsLocatingGps(true);
+    setGpsMessage(null);
+    try {
+      const loc = await getCurrentDeviceLocation();
+      setFormData((prev) => ({ ...prev, koordinat: loc.formatted }));
+      setGpsMessage({
+        text: `Koordinat GPS berhasil terdeteksi dari perangkat Anda: ${loc.formatted}`,
+        type: 'success',
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengakses GPS perangkat.';
+      setGpsMessage({ text: msg, type: 'error' });
+    } finally {
+      setIsLocatingGps(false);
+    }
+  };
+
+  const handleEstimateLocation = () => {
+    const estimated = getEstimatedRegionCoordinate(formData.bpn, formData.ultg, formData.kecamatan);
+    if (estimated) {
+      setFormData((prev) => ({ ...prev, koordinat: estimated.formatted }));
+      setGpsMessage({
+        text: `Koordinat diisi estimasi titik area ${estimated.label}: ${estimated.formatted}`,
+        type: 'info',
+      });
+    }
+  };
+
+  const handleCoordinateChange = (val: string) => {
+    const parsed = parseCoordinateInput(val);
+    if (parsed && (val.includes('http') || val.includes('maps') || val.includes('°'))) {
+      setFormData((prev) => ({ ...prev, koordinat: parsed.formatted }));
+      setGpsMessage({
+        text: `Tautan/format berhasil dikonversi ke koordinat: ${parsed.formatted}`,
+        type: 'success',
+      });
+    } else {
+      setFormData((prev) => ({ ...prev, koordinat: val }));
+      setGpsMessage(null);
+    }
+  };
+
   // Synchronize state when selected asset changes
   useEffect(() => {
     if (asset) {
+      setIsLocatingGps(false);
+      setGpsMessage(null);
       const rawAssetTerbit = asset.tanggalTerbit || '';
       const hasTglTerbit = Boolean(
         rawAssetTerbit &&
@@ -146,10 +204,19 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
     const clean = upper.trim();
     const isFilled = clean !== '' && clean !== '-' && clean !== '0' && !clean.startsWith('BELUM');
     setFormData((prev) => {
+      const updatedDocName = prev.dokumenSertifikat
+        ? formatCertificateFileName(upper, prev.dokumenSertifikatNama, {
+            asetProperti: prev.asetProperti,
+            asetLapangan: prev.asetLapangan,
+            desa: prev.desa,
+          })
+        : prev.dokumenSertifikatNama;
+
       if (isFilled && prev.tahapan < 17) {
         return {
           ...prev,
           noSertifikat: upper,
+          dokumenSertifikatNama: updatedDocName,
           tahapan: 17,
           sps1Paid: true,
           sps2Paid: true,
@@ -160,6 +227,7 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
       return {
         ...prev,
         noSertifikat: upper,
+        dokumenSertifikatNama: updatedDocName,
       };
     });
   };
@@ -245,12 +313,10 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
         return tgl;
       })(),
       tanggalAkhir: (() => {
-        const finalTgl = isTerbit
-          ? (formData.tanggalTerbit && formData.tanggalTerbit !== '-' ? formData.tanggalTerbit.trim() : '18/09/2024')
-          : (formData.tanggalTerbit.trim() || '-');
-        const hasValidTgl = finalTgl !== '' && finalTgl !== '-' && finalTgl.toLowerCase() !== 'null';
-        // Aturan bisnis: jika tanggal terbit kosong maka tanggal akhir wajib kosong ('-')
-        return !hasValidTgl ? '-' : (formData.tanggalAkhir.trim() || '31/12/2025');
+        if (formData.tanggalAkhir && formData.tanggalAkhir.trim()) {
+          return formData.tanggalAkhir.trim();
+        }
+        return isTerbit ? (formData.tanggalTerbit.trim() || '18/09/2024') : '31/12/2025';
       })(),
       kategori: formData.kategori,
       tahun: (() => {
@@ -471,15 +537,96 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Koordinat (Latitude, Longitude)</label>
+                <div className="sm:col-span-2 lg:col-span-3 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <label className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Koordinat GPS (Latitude, Longitude)</span>
+                    </label>
+                    {formData.koordinat && formData.koordinat.trim() !== '' && (
+                      <a
+                        href={`https://www.google.com/maps?q=${encodeURIComponent(formData.koordinat.replace(/\s+/g, ''))}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 hover:underline"
+                        title="Buka titik koordinat di Google Maps"
+                      >
+                        <span>Uji di Google Maps</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+
                   <input
                     type="text"
                     value={formData.koordinat}
-                    onChange={(e) => setFormData({ ...formData, koordinat: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg p-2 bg-slate-50 text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
-                    placeholder="-7.6250, 111.5300"
+                    onChange={(e) => handleCoordinateChange(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono text-xs shadow-2xs"
+                    placeholder="Contoh: -7.625000, 111.530000 atau tempel tautan Google Maps"
                   />
+
+                  {/* Quick Action Buttons */}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleGetGpsLocation}
+                      disabled={isLocatingGps}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white rounded-lg transition-colors shadow-2xs cursor-pointer"
+                      title="Gunakan sensor GPS perangkat untuk mengambil koordinat saat ini"
+                    >
+                      <Locate className={`w-3.5 h-3.5 ${isLocatingGps ? 'animate-spin' : ''}`} />
+                      <span>{isLocatingGps ? 'Mendeteksi Lokasi...' : 'Deteksi GPS Sekarang'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleEstimateLocation}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg transition-colors shadow-2xs cursor-pointer"
+                      title="Isi otomatis koordinat perkiraan sesuai Kantah BPN atau ULTG"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Estimasi dari BPN / ULTG</span>
+                    </button>
+
+                    {formData.koordinat && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData((prev) => ({ ...prev, koordinat: '' }));
+                          setGpsMessage(null);
+                        }}
+                        className="px-2 py-1 text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                      >
+                        Hapus
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Status Message */}
+                  {gpsMessage && (
+                    <div
+                      className={`mt-2 p-2 rounded-lg text-xs flex items-center gap-2 ${
+                        gpsMessage.type === 'success'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : gpsMessage.type === 'error'
+                          ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                          : 'bg-amber-50 text-amber-900 border border-amber-200'
+                      }`}
+                    >
+                      {gpsMessage.type === 'success' ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      ) : gpsMessage.type === 'error' ? (
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      ) : (
+                        <Info className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      )}
+                      <span>{gpsMessage.text}</span>
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-slate-500 mt-1.5 leading-tight">
+                    * Titik koordinat menentukan posisi aset pada <strong>Peta Sebaran GIS</strong>. Anda juga dapat langsung menempelkan tautan dari Google Maps.
+                  </p>
                 </div>
               </div>
             </div>
@@ -630,10 +777,15 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
                               if (e.target.files && e.target.files[0]) {
                                 const f = e.target.files[0];
                                 const url = await fileToDataUrl(f);
+                                const formattedName = formatCertificateFileName(formData.noSertifikat, f.name, {
+                                  asetProperti: formData.asetProperti,
+                                  asetLapangan: formData.asetLapangan,
+                                  desa: formData.desa,
+                                });
                                 setFormData((prev) => ({
                                   ...prev,
                                   dokumenSertifikat: url,
-                                  dokumenSertifikatNama: f.name,
+                                  dokumenSertifikatNama: formattedName,
                                   dokumenSertifikatType: f.type,
                                   dokumenSertifikatUkuran: f.size,
                                 }));
@@ -653,12 +805,15 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
                             if (link && link.trim()) {
                               const cleanLink = link.trim();
                               const formatted = isGoogleDriveUrl(cleanLink) ? getDrivePreviewUrl(cleanLink) : cleanLink;
+                              const formattedName = formatCertificateFileName(formData.noSertifikat, 'Sertifikat.pdf', {
+                                asetProperti: formData.asetProperti,
+                                asetLapangan: formData.asetLapangan,
+                                desa: formData.desa,
+                              });
                               setFormData((prev) => ({
                                 ...prev,
                                 dokumenSertifikat: formatted,
-                                dokumenSertifikatNama: isGoogleDriveUrl(cleanLink)
-                                  ? `Google Drive Sertifikat ${prev.noSertifikat || ''}`.trim()
-                                  : `Tautan Sertifikat ${prev.noSertifikat || ''}`.trim(),
+                                dokumenSertifikatNama: formattedName,
                                 dokumenSertifikatType: isGoogleDriveUrl(cleanLink) ? 'application/pdf' : 'text/html',
                                 dokumenSertifikatUkuran: 0,
                               }));
@@ -692,50 +847,34 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
                   <input
                     type="text"
                     value={formData.tanggalTerbit}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const isKosong = !val.trim() || val.trim() === '-';
-                      setFormData((prev) => ({
-                        ...prev,
-                        tanggalTerbit: val,
-                        ...(isKosong ? { tanggalAkhir: '' } : {}),
-                      }));
-                    }}
+                    onChange={(e) => setFormData({ ...formData, tanggalTerbit: e.target.value })}
                     className="w-full border border-slate-300 rounded-lg p-2 bg-slate-50 text-slate-900 font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                     placeholder="DD/MM/YYYY (contoh: 15/09/2024)"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Tgl Akhir / Target</label>
-                  {(() => {
-                    const hasTglTerbit = Boolean(
-                      formData.tanggalTerbit &&
-                      formData.tanggalTerbit.trim() !== '' &&
-                      formData.tanggalTerbit.trim() !== '-'
-                    );
-                    return (
-                      <div>
-                        <input
-                          type="text"
-                          disabled={!hasTglTerbit}
-                          value={hasTglTerbit ? formData.tanggalAkhir : ''}
-                          onChange={(e) => setFormData({ ...formData, tanggalAkhir: e.target.value })}
-                          className={`w-full border rounded-lg p-2 font-mono focus:outline-none ${
-                            !hasTglTerbit
-                              ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
-                              : 'bg-slate-50 border-slate-300 text-slate-900 focus:ring-2 focus:ring-emerald-500'
-                          }`}
-                          placeholder={!hasTglTerbit ? '- (Wajib isi Tgl Terbit dahulu)' : 'DD/MM/YYYY (contoh: 31/12/2025)'}
-                        />
-                        {!hasTglTerbit && (
-                          <p className="text-[10px] text-amber-700 mt-1 italic">
-                            * Wajib kosong karena Tanggal Terbit belum terisi.
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  <label className="block text-slate-600 font-semibold mb-1">Tgl Akhir / Target Penyelesaian</label>
+                  <input
+                    type="text"
+                    value={formData.tanggalAkhir}
+                    onChange={(e) => setFormData({ ...formData, tanggalAkhir: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-slate-50 border-slate-300 text-slate-900 font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    placeholder="DD/MM/YYYY (contoh: 31/12/2025)"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 font-semibold mb-1">Tahun Anggaran / Pendaftaran</label>
+                  <input
+                    type="number"
+                    value={formData.tahun || ''}
+                    onChange={(e) => setFormData({ ...formData, tahun: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-slate-50 text-slate-900 font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    placeholder="Contoh: 2024"
+                    min={2000}
+                    max={2099}
+                  />
                 </div>
               </div>
             </div>

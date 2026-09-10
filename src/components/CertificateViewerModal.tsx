@@ -35,6 +35,7 @@ import {
   TARGET_DRIVE_ACCOUNT,
   CERTIFICATE_FOLDER_NAME,
   uploadCertificateToDrive,
+  formatCertificateFileName,
   getDrivePreviewUrl,
   isGoogleDriveUrl,
   extractDriveFileId,
@@ -86,6 +87,7 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
   const [iframeKey, setIframeKey] = useState<number>(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const localFileInputRef = useRef<HTMLInputElement>(null);
 
   // Load document from asset or IndexedDB
   useEffect(() => {
@@ -190,6 +192,12 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
     }
   };
 
+  const handleLocalFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      await processFileUpload(e.target.files[0], false);
+    }
+  };
+
   /**
    * Connect to Google Drive with account selection (admumuptmadiun@gmail.com or other)
    */
@@ -206,9 +214,18 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
         `Berhasil terhubung dengan Google Drive: ${authResult.user.email || TARGET_DRIVE_ACCOUNT}. Berkas akan disimpan di folder "${CERTIFICATE_FOLDER_NAME}".`
       );
     } catch (err: any) {
-      console.warn('Connect drive error:', err);
-      if (err?.code !== 'auth/popup-closed-by-user') {
-        setErrorMsg(err.message || 'Gagal menghubungkan Google Drive. Silakan coba lagi.');
+      if (err?.code === 'auth/popup-closed-by-user') {
+        console.info('Connect drive popup closed by user or dismissed.');
+        setErrorMsg(
+          'Jendela otorisasi Google ditutup. Anda dapat mencoba kembali kapan saja, atau gunakan tab "Tautkan Link Drive" untuk menempelkan tautan Google Drive secara langsung tanpa perlu login.'
+        );
+      } else {
+        console.warn('Connect drive error:', err);
+        setErrorMsg(
+          err.message?.includes('verifikasi') || err.message?.includes('blocked')
+            ? 'Akses Google otomatis diblokir karena status verifikasi OAuth. Solusi termudah: Buka Google Drive (drive.google.com), unggah berkas scan sertifikat, salin link berbagi, lalu tempelkan di tab "Tautkan Link Drive" di atas.'
+            : err.message || 'Gagal menghubungkan Google Drive. Silakan coba lagi.'
+        );
       }
     } finally {
       setIsConnectingDrive(false);
@@ -241,20 +258,21 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
         return;
       }
 
-      // Convert local document to File
+      // Convert local document to File with nomor sertifikat as filename
       let fileToUpload: File;
+      const targetFileName = formatCertificateFileName(asset.noSertifikat, docName, {
+        asetProperti: asset.asetProperti,
+        asetLapangan: asset.asetLapangan,
+        desa: asset.desa,
+      });
       if (docUrl.startsWith('data:')) {
-        const cleanExt = docType.includes('pdf') ? '.pdf' : docType.includes('png') ? '.png' : '.jpg';
-        const rawFileName =
-          docName ||
-          `Sertifikat_${(asset.noSertifikat || 'PLN').replace(/[^a-zA-Z0-9]/g, '_')}${cleanExt}`;
-        fileToUpload = dataUrlToFile(docUrl, rawFileName);
+        fileToUpload = dataUrlToFile(docUrl, targetFileName);
       } else {
         const res = await fetch(docUrl);
         const blob = await res.blob();
         fileToUpload = new File(
           [blob],
-          docName || `Sertifikat_${(asset.noSertifikat || 'PLN').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+          targetFileName,
           { type: blob.type || docType || 'application/pdf' }
         );
       }
@@ -292,8 +310,15 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
         `Berkas "${driveResult.fileName}" BERHASIL diunggah ke Google Drive (${googleUser?.email || TARGET_DRIVE_ACCOUNT}) dalam folder "${CERTIFICATE_FOLDER_NAME}" dan dibagikan ke ${TARGET_DRIVE_ACCOUNT}!`
       );
     } catch (err: any) {
-      console.error('Error uploading current doc to Drive:', err);
-      setErrorMsg(err.message || 'Gagal mengunggah berkas ke Google Drive.');
+      if (err?.code === 'auth/popup-closed-by-user') {
+        console.info('Upload current doc cancelled: popup closed by user or blocked by browser.');
+        setErrorMsg(
+          'Jendela otorisasi Google ditutup. Berkas tetap tersimpan aman di aplikasi secara lokal. Anda juga dapat menggunakan tab "Tautkan Link Drive".'
+        );
+      } else {
+        console.error('Error uploading current doc to Drive:', err);
+        setErrorMsg(err.message || 'Gagal mengunggah berkas ke Google Drive.');
+      }
     } finally {
       setIsLoading(false);
       setIsUploadingDrive(false);
@@ -329,18 +354,23 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
             onGoogleAuthSuccess(authResult.user, authResult.accessToken);
           }
         } catch (authErr: any) {
-          console.warn('Google Drive sign in cancelled or failed:', authErr);
-          setErrorMsg(
-            'Koneksi Google Drive belum aktif. Silakan klik tombol "Hubungkan Google Drive" untuk menyimpan ke Google Drive.'
-          );
-          setIsLoading(false);
-          setIsUploadingDrive(false);
-          return;
+          if (authErr?.code === 'auth/popup-closed-by-user') {
+            console.info('Google Drive sign-in popup was closed. Falling back to local storage.');
+            preferDrive = false;
+          } else {
+            console.warn('Google Drive sign in cancelled or failed:', authErr);
+            setErrorMsg(
+              'Koneksi Google Drive belum aktif. Silakan klik tombol "Hubungkan Google Drive" untuk menyimpan ke Google Drive.'
+            );
+            setIsLoading(false);
+            setIsUploadingDrive(false);
+            return;
+          }
         }
       }
 
-      // If token is available, upload directly to Google Drive
-      if (token) {
+      // If preferDrive and token is available, upload directly to Google Drive
+      if (preferDrive && token) {
         setIsUploadingDrive(true);
         const driveResult = await uploadCertificateToDrive(token, file, {
           noSertifikat: asset.noSertifikat,
@@ -391,7 +421,13 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
       }
 
       // Fallback: Local IndexedDB
-      const stored = await saveCertificateDocument(asset.id, asset.noSertifikat, file);
+      const targetFileName = formatCertificateFileName(asset.noSertifikat, file.name, {
+        asetProperti: asset.asetProperti,
+        asetLapangan: asset.asetLapangan,
+        desa: asset.desa,
+      });
+      const renamedLocalFile = new File([file], targetFileName, { type: file.type });
+      const stored = await saveCertificateDocument(asset.id, asset.noSertifikat, renamedLocalFile);
       setDocUrl(stored.dataUrl);
       setDocName(stored.fileName);
       setDocType(stored.fileType);
@@ -407,7 +443,7 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
 
       onSaveAsset(updatedAsset);
       setSuccessMsg(
-        `Dokumen "${file.name}" disimpan secara lokal di peramban ini. Anda dapat mengunggahnya ke Google Drive dengan tombol di atas.`
+        `Dokumen "${stored.fileName}" berhasil disimpan. Anda dapat mengunggahnya ke Google Drive dengan tombol di atas.`
       );
       setActiveTab('VIEW');
     } catch (err: any) {
@@ -435,7 +471,11 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
 
     const defaultName =
       inputName.trim() ||
-      `Dokumen_Sertifikat_${(asset.noSertifikat || 'PLN').replace(/[^a-zA-Z0-9]/g, '_')}`;
+      formatCertificateFileName(asset.noSertifikat, 'Sertifikat.pdf', {
+        asetProperti: asset.asetProperti,
+        asetLapangan: asset.asetLapangan,
+        desa: asset.desa,
+      });
     const fileType = isGoogleDriveUrl(cleanUrl)
       ? 'application/pdf'
       : cleanUrl.toLowerCase().includes('.pdf')
@@ -520,7 +560,12 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
   const handleDownload = () => {
     if (!docUrl) return;
     const cleanFileName =
-      docName || `Sertifikat_${(asset.noSertifikat || 'PLN').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      docName ||
+      formatCertificateFileName(asset.noSertifikat, 'Sertifikat.pdf', {
+        asetProperti: asset.asetProperti,
+        asetLapangan: asset.asetLapangan,
+        desa: asset.desa,
+      });
     const a = document.createElement('a');
     a.href = docUrl;
     a.download = cleanFileName;
@@ -872,29 +917,37 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Warning banner if document is still local and not yet in Google Drive */}
+                  {/* Status banner for local document */}
                   {!isGdrive && (
-                    <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 shrink-0">
+                    <div className="bg-emerald-50/70 border-b border-emerald-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-950 shrink-0">
                       <div className="flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                         <span>
-                          Berkas ini tersimpan secara lokal di peramban ini dan{' '}
-                          <strong>belum ada di Google Drive ({TARGET_DRIVE_ACCOUNT})</strong>.
+                          Berkas aktif tersimpan di peramban ini. Untuk menyimpan salinan di Google Drive ({TARGET_DRIVE_ACCOUNT}):
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleUploadCurrentDocToDrive}
-                        disabled={isLoading || isUploadingDrive}
-                        className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg text-xs shadow-xs transition-colors cursor-pointer"
-                      >
-                        <Cloud className="w-3.5 h-3.5" />
-                        <span>
-                          {isUploadingDrive
-                            ? 'Sedang Mengunggah...'
-                            : `Unggah Berkas Ini ke Google Drive (${TARGET_DRIVE_ACCOUNT})`}
-                        </span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('LINK')}
+                          className="inline-flex items-center gap-1 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold px-2.5 py-1 rounded-lg text-xs shadow-2xs transition-colors cursor-pointer"
+                          title="Tautkan link berkas dari Google Drive"
+                        >
+                          <LinkIcon className="w-3.5 h-3.5" />
+                          <span>Tautkan Link Drive</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleUploadCurrentDocToDrive}
+                          disabled={isLoading || isUploadingDrive}
+                          className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold px-3 py-1 rounded-lg text-xs shadow-2xs transition-colors cursor-pointer"
+                        >
+                          <Cloud className="w-3.5 h-3.5" />
+                          <span>
+                            {isUploadingDrive ? 'Sedang Mengunggah...' : 'Unggah ke Google Drive'}
+                          </span>
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -1240,6 +1293,16 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
               {/* Status info box */}
               <div className="mb-5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1.5 text-slate-700">
                 <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-600">Nama File di Drive:</span>
+                  <span className="font-bold text-emerald-800 font-mono text-[11px] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 truncate max-w-[280px]" title={formatCertificateFileName(asset.noSertifikat, '.pdf', { asetProperti: asset.asetProperti, asetLapangan: asset.asetLapangan, desa: asset.desa })}>
+                    {formatCertificateFileName(asset.noSertifikat, '.pdf', {
+                      asetProperti: asset.asetProperti,
+                      asetLapangan: asset.asetLapangan,
+                      desa: asset.desa,
+                    })}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
                   <span className="font-semibold text-slate-600">Folder Google Drive:</span>
                   <span className="font-bold text-emerald-800">{CERTIFICATE_FOLDER_NAME}</span>
                 </div>
@@ -1322,8 +1385,40 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
                 </span>
               </div>
 
+              {/* Helpful tip box */}
+              <div className="mt-4 p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-950 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-[11px] leading-relaxed">
+                  <strong>Kenapa Google menampilkan &ldquo;Akses diblokir&rdquo;?</strong>
+                  <p className="mt-0.5 text-amber-900">
+                    Proyek Google Cloud berada dalam mode pengujian (<em>Testing</em>), sehingga Google memblokir akun yang belum didaftarkan sebagai Pengguna Uji (<em>Test User</em>).
+                  </p>
+                  <div className="mt-2 space-y-1.5 text-amber-900">
+                    <div className="flex items-start gap-1.5">
+                      <span className="font-bold text-emerald-800">1. Solusi Termudah (100% Berhasil):</span>
+                      <span>
+                        Unggah berkas di <a href="https://drive.google.com" target="_blank" rel="noreferrer" className="underline font-bold text-emerald-800">drive.google.com</a>, salin link berbaginya, lalu gunakan tab{' '}
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('LINK')}
+                          className="underline font-bold text-emerald-800 hover:text-emerald-950 cursor-pointer"
+                        >
+                          &ldquo;Tautkan Link Drive&rdquo;
+                        </button>.
+                      </span>
+                    </div>
+                    <div className="flex items-start gap-1.5">
+                      <span className="font-bold text-emerald-800">2. Simpan di Aplikasi:</span>
+                      <span>
+                        Klik tombol <strong>&ldquo;Simpan Lokal Saja&rdquo;</strong> di bawah untuk langsung menyimpan berkas di peramban ini tanpa perlu otorisasi Google.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {isLoading && (
-                <div className="mt-5 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center text-xs text-emerald-800 font-semibold animate-pulse flex items-center justify-center gap-3">
+                <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center text-xs text-emerald-800 font-semibold animate-pulse flex items-center justify-center gap-3">
                   <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
                   <span>
                     {isUploadingDrive
@@ -1343,7 +1438,28 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
                   Batal / Kembali
                 </button>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+                  <input
+                    ref={localFileInputRef}
+                    type="file"
+                    accept=".pdf,image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={handleLocalFileInputChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (localFileInputRef.current) {
+                        localFileInputRef.current.click();
+                      }
+                    }}
+                    disabled={isLoading}
+                    className="w-full sm:w-auto px-4 py-2 text-xs font-bold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Simpan berkas secara lokal di peramban ini tanpa perlu otorisasi Google"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Simpan Lokal Saja</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -1351,7 +1467,7 @@ export const CertificateViewerModal: React.FC<CertificateViewerModalProps> = ({
                     className="w-full sm:w-auto px-5 py-2.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                   >
                     <Cloud className="w-4 h-4" />
-                    <span>Pilih Berkas & Simpan ke Drive</span>
+                    <span>Simpan ke Google Drive</span>
                   </button>
                 </div>
               </div>
