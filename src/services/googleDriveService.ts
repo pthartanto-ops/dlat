@@ -26,10 +26,9 @@ const googleDriveProvider = new GoogleAuthProvider();
 GOOGLE_DRIVE_SCOPES.forEach((scope) => {
   googleDriveProvider.addScope(scope);
 });
-// Request consent and hint target drive account
+// Request consent and allow selecting account (admumuptmadiun@gmail.com or other)
 googleDriveProvider.setCustomParameters({
-  prompt: 'consent',
-  login_hint: TARGET_DRIVE_ACCOUNT,
+  prompt: 'select_account',
 });
 
 // Flag to track sign-in state
@@ -60,15 +59,29 @@ export const initGoogleDriveAuth = (
 };
 
 /**
- * Perform sign-in with Google Drive scopes
+ * Perform sign-in with Google Drive scopes, supporting account selection
  */
-export const signInWithGoogleDrive = async (): Promise<{ user: User; accessToken: string }> => {
+export const signInWithGoogleDrive = async (
+  loginHint?: string
+): Promise<{ user: User; accessToken: string }> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, googleDriveProvider);
+    const provider = new GoogleAuthProvider();
+    GOOGLE_DRIVE_SCOPES.forEach((scope) => {
+      provider.addScope(scope);
+    });
+    const params: Record<string, string> = {
+      prompt: 'select_account',
+    };
+    if (loginHint) {
+      params.login_hint = loginHint;
+    }
+    provider.setCustomParameters(params);
+
+    const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
-      throw new Error('Gagal mendapatkan Access Token Google Drive dari Firebase Auth');
+      throw new Error('Gagal memperoleh Token Akses Google Drive dari akun yang dipilih.');
     }
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
@@ -197,6 +210,8 @@ export const getOrCreateAppFolder = async (
     }
 
     const newFolder = await createRes.json();
+    // Share folder with target account
+    await shareFileWithTargetDrive(accessToken, newFolder.id, TARGET_DRIVE_ACCOUNT);
     return newFolder.id;
   } catch (error) {
     console.error('Error finding/creating app folder in Google Drive:', error);
@@ -307,6 +322,56 @@ export const listDriveFiles = async (
 };
 
 /**
+ * Convert a base64 Data URL to a browser File object
+ */
+export const dataUrlToFile = (dataUrl: string, filename: string): File => {
+  const arr = dataUrl.split(',');
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+};
+
+/**
+ * Share a file or folder in Google Drive with an email address (e.g. admumuptmadiun@gmail.com)
+ */
+export const shareFileWithTargetDrive = async (
+  accessToken: string,
+  fileId: string,
+  emailAddress: string = TARGET_DRIVE_ACCOUNT
+): Promise<boolean> => {
+  if (accessToken.startsWith('demo-') || !fileId || fileId.startsWith('demo-')) {
+    return true;
+  }
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?sendNotificationEmail=false`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          role: 'writer',
+          type: 'user',
+          emailAddress,
+        }),
+      }
+    );
+    return res.ok;
+  } catch (err) {
+    console.warn('Could not share file with target drive email:', err);
+    return false;
+  }
+};
+
+/**
  * Upload a file directly to Google Drive
  */
 export const uploadFileToDrive = async (
@@ -343,48 +408,25 @@ export const uploadFileToDrive = async (
     }
 
     const boundary = '-------314159265358979323846';
-    const delimiter = `\r\n--${boundary}\r\n`;
-    const closeDelimiter = `\r\n--${boundary}--`;
-
-    const reader = new FileReader();
-    const fileDataPromise = new Promise<ArrayBuffer>((resolve, reject) => {
-      reader.onload = () => resolve(reader.result as ArrayBuffer);
-      reader.onerror = reject;
-      reader.readAsArrayBuffer(file);
-    });
-
-    const fileBuffer = await fileDataPromise;
-    const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(
+    const metadataPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(
       metadata
     )}\r\n`;
+    const mediaHeader = `--${boundary}\r\nContent-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
 
-    const preambleBytes = new TextEncoder().encode(metadataPart);
-    const mediaHeader = `Content-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`;
-    const mediaHeaderBytes = new TextEncoder().encode(delimiter + mediaHeader);
-    const closingBytes = new TextEncoder().encode(closeDelimiter);
-
-    const totalLength =
-      preambleBytes.byteLength + mediaHeaderBytes.byteLength + fileBuffer.byteLength + closingBytes.byteLength;
-    const combinedBuffer = new Uint8Array(totalLength);
-
-    let offset = 0;
-    combinedBuffer.set(preambleBytes, offset);
-    offset += preambleBytes.byteLength;
-    combinedBuffer.set(mediaHeaderBytes, offset);
-    offset += mediaHeaderBytes.byteLength;
-    combinedBuffer.set(new Uint8Array(fileBuffer), offset);
-    offset += fileBuffer.byteLength;
-    combinedBuffer.set(closingBytes, offset);
+    const multipartBlob = new Blob([metadataPart, mediaHeader, file, closeDelimiter], {
+      type: `multipart/related; boundary=${boundary}`,
+    });
 
     const res = await fetch(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,modifiedTime,webViewLink,webContentLink',
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,parents',
       {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': `multipart/related; boundary=${boundary}`,
         },
-        body: combinedBuffer,
+        body: multipartBlob,
       }
     );
 
@@ -589,6 +631,8 @@ export const uploadCertificateToDrive = async (
   }
 ): Promise<{
   fileId: string;
+  folderId: string;
+  folderViewLink: string;
   webViewLink: string;
   previewUrl: string;
   fileName: string;
@@ -625,12 +669,18 @@ export const uploadCertificateToDrive = async (
   // 5. Make publicly readable by link for seamless preview
   await makeFilePubliclyReadable(accessToken, uploaded.id);
 
+  // 6. Also share explicitly with target drive account
+  await shareFileWithTargetDrive(accessToken, uploaded.id, TARGET_DRIVE_ACCOUNT);
+
   const previewUrl = `https://drive.google.com/file/d/${uploaded.id}/preview`;
   const webViewLink =
     uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view?usp=sharing`;
+  const folderViewLink = `https://drive.google.com/drive/folders/${folderId}`;
 
   return {
     fileId: uploaded.id,
+    folderId,
+    folderViewLink,
     webViewLink,
     previewUrl,
     fileName: standardizedName,
