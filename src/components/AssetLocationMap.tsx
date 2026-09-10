@@ -181,8 +181,14 @@ export const AssetLocationMap: React.FC<AssetLocationMapProps> = ({ asset }) => 
             <MapPin className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-bold text-xs text-white">Visualisasi Peta Persil Tanah</span>
+              {asset.asetCbm && asset.asetCbm !== '-' && (
+                <span className="inline-flex items-center gap-1 bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded">
+                  <span className="text-[7.5px] bg-emerald-600 text-white px-0.5 rounded">CBM</span>
+                  <span>{asset.asetCbm}</span>
+                </span>
+              )}
               {coords.isEstimated ? (
                 <span className="inline-flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-bold px-1.5 py-0.5 rounded">
                   <AlertCircle className="w-2.5 h-2.5" />

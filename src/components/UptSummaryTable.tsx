@@ -72,6 +72,43 @@ export const UptSummaryTable: React.FC<UptSummaryTableProps> = ({
     return Math.max(0, row.sertifikatTerbit.total - fiveYearsSum);
   };
 
+  // Tahun berjalan aktif (berdasarkan target tahun anggaran atau tahun terakhir terdeteksi)
+  const currentYear = targetYear || latestYear || new Date().getFullYear();
+
+  // Helper untuk menghitung prosentase aset tersertifikasi tahun berjalan (terbit tahun berjalan / target tahun berjalan)
+  const getYearProgress = (row: UnitSummaryData) => {
+    const terbit = getYearCount(row, currentYear);
+    const target = row.target;
+    let pct = 0;
+    if (target > 0) {
+      pct = (terbit / target) * 100;
+    } else if (terbit > 0) {
+      pct = 100;
+    }
+    return {
+      terbit,
+      target,
+      pct,
+      pctFormatted: target > 0 ? `${pct.toFixed(1)}%` : terbit > 0 ? '100.0%' : '-',
+    };
+  };
+
+  // Helper untuk menghitung prosentase aset tersertifikasi total (total terbit / total aset)
+  const getTotalProgress = (row: UnitSummaryData) => {
+    const totalTerbit = row.sertifikatTerbit.total;
+    const totalAset = row.totalAset;
+    let pct = 0;
+    if (totalAset > 0) {
+      pct = (totalTerbit / totalAset) * 100;
+    }
+    return {
+      totalTerbit,
+      totalAset,
+      pct,
+      pctFormatted: totalAset > 0 ? `${pct.toFixed(1)}%` : '-',
+    };
+  };
+
   const totalRow = React.useMemo(() => {
     const res: UnitSummaryData = {
       unit: 'TOTAL KESELURUHAN',
@@ -196,9 +233,10 @@ export const UptSummaryTable: React.FC<UptSummaryTableProps> = ({
               </th>
               <th
                 colSpan={2}
-                className="py-1.5 px-2 bg-emerald-900 border-r border-emerald-700 uppercase tracking-wider text-[11px]"
+                className="py-1.5 px-2 bg-blue-900 border-r border-emerald-700 uppercase tracking-wider text-[11px]"
+                title="Persentase Sertifikasi Aset: Tahun Berjalan & Total Akumulasi"
               >
-                Status Sebelum BPN
+                % Sertifikasi Aset
               </th>
               <th
                 colSpan={16}
@@ -226,9 +264,25 @@ export const UptSummaryTable: React.FC<UptSummaryTableProps> = ({
                 Total Terbit
               </th>
 
-              {/* Status Sebelum BPN Sub-cols */}
-              <th className="py-1.5 px-2 border-r border-emerald-600/70 bg-emerald-900/60 min-w-[55px]">SPH</th>
-              <th className="py-1.5 px-2 border-r border-emerald-800 bg-emerald-900/60 min-w-[65px]">Tanpa SPH</th>
+              {/* Prosentase Sertifikasi Aset Sub-cols (Menggantikan Status Sebelum BPN) */}
+              <th
+                className="py-1.5 px-2 border-r border-emerald-600/70 bg-blue-950/70 min-w-[95px] text-center"
+                title={`Persentase Aset Yang Sudah Tersertifikasi Tahun Berjalan (${currentYear}): Target vs Sertifikat Terbit`}
+              >
+                <div className="flex flex-col items-center">
+                  <span className="font-bold text-white leading-tight">% Thn Berjalan</span>
+                  <span className="text-[9px] text-sky-200 font-normal">({currentYear})</span>
+                </div>
+              </th>
+              <th
+                className="py-1.5 px-2 border-r border-emerald-800 bg-blue-950/70 min-w-[95px] text-center"
+                title="Persentase Aset Yang Sudah Tersertifikasi Total: Total Terbit vs Total Aset"
+              >
+                <div className="flex flex-col items-center">
+                  <span className="font-bold text-white leading-tight">% Total Aset</span>
+                  <span className="text-[9px] text-sky-200 font-normal">(Terbit / Total)</span>
+                </div>
+              </th>
 
               {/* Tahapan BPN 1 to 16 Sub-cols */}
               {BPN_STAGES.map((st) => (
@@ -255,6 +309,8 @@ export const UptSummaryTable: React.FC<UptSummaryTableProps> = ({
             {allRows.map((row, idx) => {
               const isSelected = selectedUnit === row.unit;
               const isTotalRow = row.isTotal;
+              const yearProg = getYearProgress(row);
+              const totalProg = getTotalProgress(row);
 
               return (
                 <tr
@@ -333,20 +389,69 @@ export const UptSummaryTable: React.FC<UptSummaryTableProps> = ({
                     {row.sertifikatTerbit.total}
                   </td>
 
-                  {/* Status Sebelum BPN Columns */}
+                  {/* Prosentase Aset Tersertifikasi Columns (Menggantikan Status Sebelum BPN) */}
+                  {/* 1. Prosentase Aset Tersertifikasi Tahun Berjalan (Target vs Terbit Tahun Berjalan) */}
                   <td
                     className={`py-2 px-2 text-center border-r ${
-                      isTotalRow ? 'border-slate-700 text-blue-300' : 'border-slate-200 text-blue-700 font-medium'
+                      isTotalRow ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-sky-50/40'
                     }`}
+                    title={`${row.unit} - Sertifikasi Tahun Berjalan (${currentYear}): ${yearProg.terbit} terbit dari target ${yearProg.target}`}
                   >
-                    {row.statusSebelumBpn.sph}
+                    <div className="flex flex-col items-center justify-center leading-tight">
+                      <span
+                        className={`font-bold ${
+                          isTotalRow
+                            ? 'text-sky-300 text-xs font-black'
+                            : yearProg.pct >= 100
+                            ? 'text-emerald-700 font-extrabold'
+                            : yearProg.pct > 0
+                            ? 'text-blue-700'
+                            : yearProg.target === 0
+                            ? 'text-slate-400'
+                            : 'text-amber-700'
+                        }`}
+                      >
+                        {yearProg.pctFormatted}
+                      </span>
+                      <span
+                        className={`text-[9.5px] font-mono mt-0.5 ${
+                          isTotalRow ? 'text-slate-400' : 'text-slate-500'
+                        }`}
+                      >
+                        ({yearProg.terbit}/{yearProg.target})
+                      </span>
+                    </div>
                   </td>
+
+                  {/* 2. Prosentase Aset Tersertifikasi Total (Total Terbit / Total Aset) */}
                   <td
                     className={`py-2 px-2 text-center border-r ${
-                      isTotalRow ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600 font-medium'
+                      isTotalRow ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-emerald-50/40'
                     }`}
+                    title={`${row.unit} - Sertifikasi Total: ${totalProg.totalTerbit} terbit dari total ${totalProg.totalAset} persil aset`}
                   >
-                    {row.statusSebelumBpn.tanpaSph}
+                    <div className="flex flex-col items-center justify-center leading-tight">
+                      <span
+                        className={`font-bold ${
+                          isTotalRow
+                            ? 'text-emerald-300 text-xs font-black'
+                            : totalProg.pct >= 100
+                            ? 'text-emerald-700 font-extrabold'
+                            : totalProg.pct >= 50
+                            ? 'text-emerald-600'
+                            : 'text-amber-700'
+                        }`}
+                      >
+                        {totalProg.pctFormatted}
+                      </span>
+                      <span
+                        className={`text-[9.5px] font-mono mt-0.5 ${
+                          isTotalRow ? 'text-slate-400' : 'text-slate-500'
+                        }`}
+                      >
+                        ({totalProg.totalTerbit}/{totalProg.totalAset})
+                      </span>
+                    </div>
                   </td>
 
                   {/* Tahapan BPN 1 to 16 Columns */}
@@ -424,7 +529,7 @@ export const UptSummaryTable: React.FC<UptSummaryTableProps> = ({
         </div>
 
         <div className="text-[11px] text-slate-500">
-          *Klik baris jenis aset untuk memfilter data aset | Klik angka tahapan untuk filter spesifik
+          * % Thn Berjalan = Terbit {currentYear} / Target | % Total Aset = Total Terbit / Total Aset | Klik baris untuk filter aset
         </div>
       </div>
     </div>

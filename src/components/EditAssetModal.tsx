@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { User } from 'firebase/auth';
 import { AssetItem, CategoryType, AlasHakType, PicOfficer } from '../types';
 import { BPN_STAGES } from '../data/mockData';
 import {
@@ -24,9 +25,24 @@ import {
   ExternalLink,
   Sparkles,
   Info,
+  Cloud,
+  CloudUpload,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { fileToDataUrl, formatFileSize } from '../services/certificateStorage';
-import { isGoogleDriveUrl, getDrivePreviewUrl, TARGET_DRIVE_ACCOUNT, formatCertificateFileName } from '../services/googleDriveService';
+import {
+  isGoogleDriveUrl,
+  getDrivePreviewUrl,
+  TARGET_DRIVE_ACCOUNT,
+  CERTIFICATE_FOLDER_NAME,
+  formatCertificateFileName,
+  uploadCertificateToDrive,
+  getDriveAccessToken,
+  setDriveAccessToken,
+  signInWithGoogleDrive,
+  dataUrlToFile,
+} from '../services/googleDriveService';
 import {
   parseCoordinateInput,
   getEstimatedRegionCoordinate,
@@ -39,6 +55,9 @@ interface EditAssetModalProps {
   onClose: () => void;
   onSaveAsset: (updatedAsset: AssetItem) => void;
   picOfficers?: PicOfficer[];
+  googleUser?: User | null;
+  googleAccessToken?: string | null;
+  onGoogleAuthSuccess?: (user: User, token: string) => void;
 }
 
 export const EditAssetModal: React.FC<EditAssetModalProps> = ({
@@ -47,6 +66,9 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
   onClose,
   onSaveAsset,
   picOfficers = [],
+  googleUser,
+  googleAccessToken,
+  onGoogleAuthSuccess,
 }) => {
   const [formData, setFormData] = useState({
     id: '',
@@ -94,6 +116,13 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
 
   const [isLocatingGps, setIsLocatingGps] = useState(false);
   const [gpsMessage, setGpsMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
+  const [driveUploadStatus, setDriveUploadStatus] = useState<{
+    type: 'loading' | 'success' | 'warning' | 'error';
+    text: string;
+    link?: string;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleGetGpsLocation = async () => {
     setIsLocatingGps(true);
@@ -194,10 +223,226 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
         sps3Amount: asset.sps3?.amount || 850000,
         sps3Paid: asset.sps3?.isPaid ?? Boolean(asset.sps3?.tanggalSps || asset.tahapan >= 14),
       });
+      setIsUploadingDrive(false);
+      setDriveUploadStatus(null);
     }
   }, [asset]);
 
   if (!isOpen || !asset) return null;
+
+  // Auto-upload attached file to Google Drive
+  const handleProcessAndUploadFile = async (file: File) => {
+    setDriveUploadStatus(null);
+
+    // Limit 35MB
+    if (file.size > 35 * 1024 * 1024) {
+      setDriveUploadStatus({
+        type: 'error',
+        text: 'Ukuran berkas melebihi batas maksimum 35 MB',
+      });
+      return;
+    }
+
+    try {
+      // 1. Read local data URL immediately so user gets instant confirmation
+      const dataUrl = await fileToDataUrl(file);
+      const formattedName = formatCertificateFileName(formData.noSertifikat, file.name, {
+        asetProperti: formData.asetProperti,
+        asetLapangan: formData.asetLapangan,
+        desa: formData.desa,
+      });
+
+      setFormData((prev) => ({
+        ...prev,
+        dokumenSertifikat: dataUrl,
+        dokumenSertifikatNama: formattedName,
+        dokumenSertifikatType: file.type || 'application/pdf',
+        dokumenSertifikatUkuran: file.size,
+      }));
+
+      // 2. Automated upload to Google Drive
+      setIsUploadingDrive(true);
+      let token = googleAccessToken || getDriveAccessToken();
+
+      if (!token) {
+        setDriveUploadStatus({
+          type: 'loading',
+          text: 'Menghubungkan akun Google Drive untuk pengunggahan otomatis...',
+        });
+        try {
+          const authResult = await signInWithGoogleDrive();
+          token = authResult.accessToken;
+          setDriveAccessToken(token);
+          if (onGoogleAuthSuccess) {
+            onGoogleAuthSuccess(authResult.user, authResult.accessToken);
+          }
+        } catch (authErr: any) {
+          if (authErr?.code === 'auth/popup-closed-by-user') {
+            console.info('Google Drive sign-in popup closed by user.');
+          } else {
+            console.warn('Google Drive sign-in cancelled or failed:', authErr);
+          }
+          setIsUploadingDrive(false);
+          setDriveUploadStatus({
+            type: 'warning',
+            text: 'Google Drive belum terhubung. Berkas tetap tersimpan aman di aplikasi.',
+          });
+          return;
+        }
+      }
+
+      if (!token) {
+        setIsUploadingDrive(false);
+        setDriveUploadStatus({
+          type: 'warning',
+          text: 'Token Google Drive tidak tersedia. Berkas tersimpan lokal di aplikasi.',
+        });
+        return;
+      }
+
+      setDriveUploadStatus({
+        type: 'loading',
+        text: `Mengunggah "${formattedName}" ke Google Drive (${CERTIFICATE_FOLDER_NAME})...`,
+      });
+
+      const driveResult = await uploadCertificateToDrive(token, file, {
+        noSertifikat: formData.noSertifikat,
+        asetProperti: formData.asetProperti,
+        asetLapangan: formData.asetLapangan,
+        persil: formData.persil,
+        desa: formData.desa,
+        bpn: formData.bpn,
+      });
+
+      setFormData((prev) => ({
+        ...prev,
+        dokumenSertifikat: driveResult.previewUrl,
+        dokumenSertifikatNama: driveResult.fileName,
+        dokumenSertifikatType: driveResult.fileType,
+        dokumenSertifikatUkuran: driveResult.fileSize,
+      }));
+
+      setDriveUploadStatus({
+        type: 'success',
+        text: `✓ Berkas "${driveResult.fileName}" BERHASIL otomatis diunggah ke Google Drive (${googleUser?.email || TARGET_DRIVE_ACCOUNT})!`,
+        link: driveResult.webViewLink,
+      });
+    } catch (err: any) {
+      console.error('Failed to upload file to Google Drive:', err);
+      setDriveUploadStatus({
+        type: 'error',
+        text: `Gagal mengunggah ke Google Drive: ${err?.message || 'Koneksi terputus'}. Berkas tetap tersimpan lokal.`,
+      });
+    } finally {
+      setIsUploadingDrive(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleProcessAndUploadFile(file);
+  };
+
+  // Upload currently attached local file to Google Drive
+  const handleUploadCurrentDocToDrive = async () => {
+    if (!formData.dokumenSertifikat || isGoogleDriveUrl(formData.dokumenSertifikat)) return;
+    try {
+      setIsUploadingDrive(true);
+      setDriveUploadStatus({
+        type: 'loading',
+        text: 'Menyiapkan berkas untuk diunggah ke Google Drive...',
+      });
+
+      let token = googleAccessToken || getDriveAccessToken();
+      if (!token) {
+        setDriveUploadStatus({
+          type: 'loading',
+          text: 'Menghubungkan akun Google Drive...',
+        });
+        const authResult = await signInWithGoogleDrive();
+        token = authResult.accessToken;
+        setDriveAccessToken(token);
+        if (onGoogleAuthSuccess) {
+          onGoogleAuthSuccess(authResult.user, authResult.accessToken);
+        }
+      }
+
+      if (!token) {
+        setIsUploadingDrive(false);
+        setDriveUploadStatus({
+          type: 'warning',
+          text: 'Otorisasi Google Drive dibatalkan.',
+        });
+        return;
+      }
+
+      const formattedName = formatCertificateFileName(formData.noSertifikat, formData.dokumenSertifikatNama || 'Sertifikat.pdf', {
+        asetProperti: formData.asetProperti,
+        asetLapangan: formData.asetLapangan,
+        desa: formData.desa,
+      });
+
+      let fileToUpload: File;
+      if (formData.dokumenSertifikat.startsWith('data:')) {
+        fileToUpload = dataUrlToFile(formData.dokumenSertifikat, formattedName);
+      } else {
+        const res = await fetch(formData.dokumenSertifikat);
+        const blob = await res.blob();
+        fileToUpload = new File([blob], formattedName, { type: blob.type || formData.dokumenSertifikatType || 'application/pdf' });
+      }
+
+      setDriveUploadStatus({
+        type: 'loading',
+        text: `Mengunggah "${formattedName}" ke Google Drive (${CERTIFICATE_FOLDER_NAME})...`,
+      });
+
+      const driveResult = await uploadCertificateToDrive(token, fileToUpload, {
+        noSertifikat: formData.noSertifikat,
+        asetProperti: formData.asetProperti,
+        asetLapangan: formData.asetLapangan,
+        persil: formData.persil,
+        desa: formData.desa,
+        bpn: formData.bpn,
+      });
+
+      setFormData((prev) => ({
+        ...prev,
+        dokumenSertifikat: driveResult.previewUrl,
+        dokumenSertifikatNama: driveResult.fileName,
+        dokumenSertifikatType: driveResult.fileType,
+        dokumenSertifikatUkuran: driveResult.fileSize,
+      }));
+
+      setDriveUploadStatus({
+        type: 'success',
+        text: `✓ Berkas "${driveResult.fileName}" BERHASIL diunggah ke Google Drive!`,
+        link: driveResult.webViewLink,
+      });
+    } catch (err: any) {
+      console.error('Failed to upload current doc to Drive:', err);
+      setDriveUploadStatus({
+        type: 'error',
+        text: `Gagal upload ke Drive: ${err?.message || 'Error koneksi'}.`,
+      });
+    } finally {
+      setIsUploadingDrive(false);
+    }
+  };
+
+  const handleRemoveDokumen = () => {
+    setFormData((prev) => ({
+      ...prev,
+      dokumenSertifikat: '',
+      dokumenSertifikatNama: '',
+      dokumenSertifikatType: '',
+      dokumenSertifikatUkuran: 0,
+    }));
+    setDriveUploadStatus(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleNoSertifikatChange = (val: string) => {
     const upper = val.toUpperCase();
@@ -728,103 +973,186 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
                   />
 
                   {/* Lampiran Dokumen Sertifikat */}
-                  <div className="mt-2 p-2.5 bg-emerald-50/50 rounded-lg border border-emerald-200/70">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-bold text-emerald-900 flex items-center gap-1">
-                        <Paperclip className="w-3.5 h-3.5 text-emerald-700" />
-                        Lampiran Dokumen Sertifikat (Scan PDF / Gambar / Link)
+                  <div className="mt-2.5 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Paperclip className="w-3.5 h-3.5 text-emerald-600" />
+                        Lampiran Dokumen Sertifikat (Scan PDF / Gambar)
                       </span>
+                      <div className="flex items-center gap-1.5">
+                        {googleUser ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200" title={`Akun: ${googleUser.email}`}>
+                            <Cloud className="w-3 h-3 text-emerald-600" />
+                            Drive Terhubung
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-medium bg-white px-2 py-0.5 rounded border border-slate-200">
+                            <Cloud className="w-3 h-3 text-slate-400" />
+                            Otomatis Upload ke Google Drive
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {formData.dokumenSertifikat ? (
-                      <div className="flex items-center justify-between bg-white p-2 rounded border border-emerald-300 text-xs">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
-                          <span className="font-semibold text-slate-800 truncate" title={formData.dokumenSertifikatNama}>
-                            {formData.dokumenSertifikatNama || 'Dokumen Sertifikat Terlampir'}
-                          </span>
-                          {formData.dokumenSertifikatUkuran ? (
-                            <span className="text-[10px] text-slate-500">
-                              ({formatFileSize(formData.dokumenSertifikatUkuran)})
-                            </span>
-                          ) : null}
+                    {/* Status / Loading Banner */}
+                    {isUploadingDrive && (
+                      <div className="mb-2.5 p-2.5 rounded-lg bg-emerald-50 border border-emerald-300 text-xs text-emerald-900 flex items-center gap-2 animate-pulse">
+                        <Loader2 className="w-4 h-4 text-emerald-600 animate-spin flex-shrink-0" />
+                        <span className="font-medium">
+                          {driveUploadStatus?.text || `Sedang mengunggah berkas ke Google Drive (${CERTIFICATE_FOLDER_NAME})...`}
+                        </span>
+                      </div>
+                    )}
+
+                    {driveUploadStatus && !isUploadingDrive && (
+                      <div
+                        className={`mb-2.5 p-2.5 rounded-lg text-xs flex items-center justify-between gap-2 ${
+                          driveUploadStatus.type === 'success'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : driveUploadStatus.type === 'warning'
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-rose-50 text-rose-800 border border-rose-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {driveUploadStatus.type === 'success' ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                          )}
+                          <span className="truncate">{driveUploadStatus.text}</span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              dokumenSertifikat: '',
-                              dokumenSertifikatNama: '',
-                              dokumenSertifikatType: '',
-                              dokumenSertifikatUkuran: 0,
-                            }))
-                          }
-                          className="text-red-600 hover:text-red-800 p-1 text-[11px] font-semibold"
-                          title="Hapus Lampiran"
-                        >
-                          Hapus
-                        </button>
+                        {driveUploadStatus.link && (
+                          <a
+                            href={driveUploadStatus.link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900 hover:underline flex-shrink-0"
+                          >
+                            Buka di Drive <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {formData.dokumenSertifikat ? (
+                      <div className="flex items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-emerald-200 shadow-2xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center flex-shrink-0">
+                            <FileText className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-800 text-xs truncate" title={formData.dokumenSertifikatNama}>
+                              {formData.dokumenSertifikatNama || 'Dokumen_Sertifikat.pdf'}
+                            </p>
+                            <div className="text-[10px] text-slate-500 flex items-center gap-2 flex-wrap mt-0.5">
+                              {formData.dokumenSertifikatUkuran ? (
+                                <span>{formatFileSize(formData.dokumenSertifikatUkuran)}</span>
+                              ) : null}
+                              {isGoogleDriveUrl(formData.dokumenSertifikat) ? (
+                                <span className="inline-flex items-center gap-0.5 text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                  <Cloud className="w-2.5 h-2.5 text-emerald-600" /> Tersimpan di Google Drive
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-0.5 text-amber-700 font-medium bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                  Tersimpan Lokal
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {!isGoogleDriveUrl(formData.dokumenSertifikat) && (
+                            <button
+                              type="button"
+                              onClick={handleUploadCurrentDocToDrive}
+                              disabled={isUploadingDrive}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                              title="Unggah berkas lokal ini langsung ke Google Drive"
+                            >
+                              <CloudUpload className="w-3.5 h-3.5" />
+                              Unggah ke Drive
+                            </button>
+                          )}
+                          <a
+                            href={getDrivePreviewUrl(formData.dokumenSertifikat)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1.5 rounded-md hover:bg-emerald-50 text-emerald-700 transition-colors"
+                            title="Lihat dokumen"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={handleRemoveDokumen}
+                            className="p-1.5 rounded-md hover:bg-rose-50 text-rose-600 transition-colors cursor-pointer"
+                            title="Hapus lampiran"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <label className="flex-1 cursor-pointer">
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-slate-500 text-xs">
+                          <Upload className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          <span>Pilih berkas baru (otomatis terunggah ke Google Drive):</span>
+                        </div>
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
                           <input
+                            ref={fileInputRef}
                             type="file"
                             accept=".pdf,image/png,image/jpeg,image/webp"
                             className="hidden"
-                            onChange={async (e) => {
-                              if (e.target.files && e.target.files[0]) {
-                                const f = e.target.files[0];
-                                const url = await fileToDataUrl(f);
-                                const formattedName = formatCertificateFileName(formData.noSertifikat, f.name, {
+                            id="btn-edit-upload-doc"
+                            disabled={isUploadingDrive}
+                            onChange={handleFileUpload}
+                          />
+                          <label
+                            htmlFor="btn-edit-upload-doc"
+                            className={`inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg py-1.5 px-3 text-xs shadow-2xs cursor-pointer transition-colors ${
+                              isUploadingDrive ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                          >
+                            <CloudUpload className="w-3.5 h-3.5" />
+                            Pilih Berkas & Unggah ke Drive
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const link = prompt(`Masukkan tautan Google Drive / Cloud Dokumen Sertifikat (${TARGET_DRIVE_ACCOUNT}):`);
+                              if (link && link.trim()) {
+                                const cleanLink = link.trim();
+                                const formatted = isGoogleDriveUrl(cleanLink) ? getDrivePreviewUrl(cleanLink) : cleanLink;
+                                const formattedName = formatCertificateFileName(formData.noSertifikat, 'Sertifikat.pdf', {
                                   asetProperti: formData.asetProperti,
                                   asetLapangan: formData.asetLapangan,
                                   desa: formData.desa,
                                 });
                                 setFormData((prev) => ({
                                   ...prev,
-                                  dokumenSertifikat: url,
+                                  dokumenSertifikat: formatted,
                                   dokumenSertifikatNama: formattedName,
-                                  dokumenSertifikatType: f.type,
-                                  dokumenSertifikatUkuran: f.size,
+                                  dokumenSertifikatType: isGoogleDriveUrl(cleanLink) ? 'application/pdf' : 'text/html',
+                                  dokumenSertifikatUkuran: 0,
                                 }));
+                                setDriveUploadStatus({
+                                  type: 'success',
+                                  text: 'Tautan Google Drive berhasil ditautkan ke sertifikat.',
+                                  link: cleanLink,
+                                });
                               }
                             }}
-                          />
-                          <span className="inline-flex items-center justify-center gap-1.5 w-full bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-lg py-1.5 px-2 text-xs font-semibold shadow-2xs transition-colors">
-                            <Upload className="w-3.5 h-3.5" />
-                            Pilih Berkas Scan (PDF / Foto)
-                          </span>
-                        </label>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const link = prompt(`Masukkan tautan Google Drive / Cloud Dokumen Sertifikat (${TARGET_DRIVE_ACCOUNT}):`);
-                            if (link && link.trim()) {
-                              const cleanLink = link.trim();
-                              const formatted = isGoogleDriveUrl(cleanLink) ? getDrivePreviewUrl(cleanLink) : cleanLink;
-                              const formattedName = formatCertificateFileName(formData.noSertifikat, 'Sertifikat.pdf', {
-                                asetProperti: formData.asetProperti,
-                                asetLapangan: formData.asetLapangan,
-                                desa: formData.desa,
-                              });
-                              setFormData((prev) => ({
-                                ...prev,
-                                dokumenSertifikat: formatted,
-                                dokumenSertifikatNama: formattedName,
-                                dokumenSertifikatType: isGoogleDriveUrl(cleanLink) ? 'application/pdf' : 'text/html',
-                                dokumenSertifikatUkuran: 0,
-                              }));
-                            }
-                          }}
-                          className="inline-flex items-center justify-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg py-1.5 px-2.5 text-xs font-semibold shadow-2xs transition-colors"
-                          title="Tautkan link Google Drive"
-                        >
-                          <LinkIcon className="w-3 h-3 text-slate-500" />
-                          Link Drive
-                        </button>
+                            className="inline-flex items-center justify-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg py-1.5 px-2.5 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                            title="Tautkan link Google Drive manual"
+                          >
+                            <LinkIcon className="w-3 h-3 text-slate-500" />
+                            Link Drive
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1107,16 +1435,27 @@ export const EditAssetModal: React.FC<EditAssetModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                disabled={isUploadingDrive}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2 rounded-lg text-xs font-bold transition-all shadow-xs"
+                disabled={isUploadingDrive}
+                className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2 rounded-lg text-xs font-bold transition-all shadow-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                <Save className="w-4 h-4" />
-                Simpan Perubahan Data
+                {isUploadingDrive ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Mengunggah ke Drive...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Simpan Perubahan Data
+                  </>
+                )}
               </button>
             </div>
           </div>

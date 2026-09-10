@@ -31,6 +31,7 @@ import {
   Info,
   PanelLeftClose,
   PanelLeftOpen,
+  Tag,
 } from 'lucide-react';
 
 interface AllAssetsMapViewProps {
@@ -59,6 +60,65 @@ const TILE_LAYERS: Record<TileLayerType, { url: string; attribution: string; nam
   },
 };
 
+/**
+ * Memformat Nama Aset CBM secara ringkas untuk taging lokasi pada peta GIS
+ */
+export function getConciseCbmName(item: {
+  asetCbm?: string;
+  asetProperti?: string;
+  asetLapangan?: string;
+  asset?: string;
+}): string {
+  // 1. Cek field asetCbm jika terisi
+  if (item.asetCbm && item.asetCbm.trim() !== '' && item.asetCbm.trim() !== '-') {
+    let cbm = item.asetCbm.trim();
+
+    // Bersihkan prefix berulang seperti "ASET CBM", "KODE CBM", "CBM:"
+    cbm = cbm.replace(/^(aset\s*cbm|kode\s*cbm|cbm\s*[:\-_]?\s*)/i, '');
+
+    // Jika sudah cukup ringkas (<= 16 karakter), tampilkan langsung
+    if (cbm.length <= 16) {
+      return cbm.toUpperCase().startsWith('CBM') ? cbm : `CBM ${cbm}`;
+    }
+
+    // Jika panjang, ekstrak nomor Tower (misal: SUTT 150kV Manisrejo - Ngawi T.45 -> CBM T.45)
+    const towerMatch = cbm.match(/(?:T(?:OWER)?\.?\s*(\d+[A-Za-z]?)|NO\.?\s*(\d+))/i);
+    if (towerMatch) {
+      const no = towerMatch[1] || towerMatch[2];
+      return `CBM T.${no}`;
+    }
+
+    // Ekstrak Gardu Induk (misal: CBM GARDU INDUK MANISREJO -> GI MANISREJO)
+    const giMatch = cbm.match(/(?:GARDU\s+INDUK|GI)\s+([A-Za-z0-9]+)/i);
+    if (giMatch) {
+      return `GI ${giMatch[1]}`;
+    }
+
+    // Potong ringkas dengan elipsis
+    return `CBM ${cbm.substring(0, 12)}…`;
+  }
+
+  // 2. Fallback jika asetCbm belum terisi: ambil nomor tower atau nama gardu dari asetProperti / asetLapangan
+  const fallback = (item.asetProperti || item.asetLapangan || item.asset || '').trim();
+  if (fallback && fallback !== '-') {
+    const towerMatch = fallback.match(/(?:T(?:OWER)?\.?\s*(\d+[A-Za-z]?)|NO\.?\s*(\d+))/i);
+    if (towerMatch) {
+      const no = towerMatch[1] || towerMatch[2];
+      return `T.${no}`;
+    }
+    const giMatch = fallback.match(/(?:GARDU\s+INDUK|GI)\s+([A-Za-z0-9]+)/i);
+    if (giMatch) {
+      return `GI ${giMatch[1]}`;
+    }
+    if (fallback.length > 15) {
+      return fallback.substring(0, 14) + '…';
+    }
+    return fallback;
+  }
+
+  return 'Aset';
+}
+
 export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
   assets,
   onOpenDetailModal,
@@ -77,6 +137,7 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [showCbmLabels, setShowCbmLabels] = useState(true); // Toggle taging lokasi nama aset CBM ringkas
 
   // Map DOM and Leaflet instance refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -89,12 +150,14 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
   const processedAssets = useMemo(() => {
     return assets.map((asset) => {
       const coordData = parseCoordinates(asset.koordinat, asset.bpn, asset.ultg);
+      const conciseCbm = getConciseCbmName(asset);
       return {
         ...asset,
         parsedLat: coordData.lat,
         parsedLng: coordData.lng,
         isVerifiedGps: !coordData.isEstimated,
         coordNote: coordData.note,
+        conciseCbm,
       };
     });
   }, [assets]);
@@ -108,6 +171,7 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
         const matchesQuery =
           (item.asetProperti || item.asetLapangan).toLowerCase().includes(query) ||
           (item.asetCbm || '').toLowerCase().includes(query) ||
+          (item.conciseCbm || '').toLowerCase().includes(query) ||
           item.penghantar.toLowerCase().includes(query) ||
           item.desa.toLowerCase().includes(query) ||
           item.kecamatan.toLowerCase().includes(query) ||
@@ -233,10 +297,15 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen]);
 
-  // Create custom marker icons
-  const createMarkerIcon = (item: (typeof processedAssets)[0], isSelected: boolean) => {
+  // Create custom marker icons with concise CBM Asset tagging label
+  const createMarkerIcon = (
+    item: (typeof processedAssets)[0],
+    isSelected: boolean,
+    showCbmTag: boolean
+  ) => {
     const isTerbit = item.statusDisplay === 'TERBIT' || item.tahapan >= 17;
     const hasKendala = item.kendala && !item.kendala.toLowerCase().includes('lancar') && item.kendala !== '-';
+    const conciseCbm = item.conciseCbm || getConciseCbmName(item);
 
     let pinColor = '#059669'; // Emerald for TERBIT
     let badgeText = 'TERBIT';
@@ -251,41 +320,67 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
     }
 
     const ringEffect = isSelected
-      ? 'ring-4 ring-amber-400 ring-offset-2 scale-125 z-50'
+      ? 'ring-4 ring-amber-400 ring-offset-2 scale-110 z-50'
       : hasKendala
       ? 'ring-2 ring-rose-500 ring-offset-1'
-      : 'hover:scale-115 shadow-md';
+      : 'hover:scale-110';
 
     const html = `
-      <div class="relative flex flex-col items-center cursor-pointer transition-transform ${ringEffect}" style="width: 38px; height: 48px;">
-        <div class="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg font-extrabold text-[10px]" style="background-color: ${pinColor}; border: 2px solid white;">
-          ${
-            item.kategori === 'TOWER'
-              ? '⚡'
-              : item.kategori === 'GARDU INDUK'
-              ? '🏭'
-              : item.kategori === 'RUMAH DINAS'
-              ? '🏠'
-              : item.kategori === 'KANTOR'
-              ? '🏢'
-              : item.kategori === 'EX. GARDU INDUK'
-              ? '🏚️'
-              : '📍'
-          }
+      <div class="relative flex flex-col items-center cursor-pointer transition-transform ${ringEffect}" style="width: 140px; pointer-events: auto;">
+        <!-- Pin Group -->
+        <div class="relative flex flex-col items-center">
+          <!-- Status Pill at Top -->
+          <span class="absolute -top-2.5 bg-slate-900 text-white font-bold text-[8px] px-1 py-0.2 rounded shadow-xs border border-white/40 whitespace-nowrap z-10">
+            ${badgeText}
+          </span>
+          <!-- Round Pin Icon -->
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg font-extrabold text-[10px]" style="background-color: ${pinColor}; border: 2px solid white;">
+            ${
+              item.kategori === 'TOWER'
+                ? '⚡'
+                : item.kategori === 'GARDU INDUK'
+                ? '🏭'
+                : item.kategori === 'RUMAH DINAS'
+                ? '🏠'
+                : item.kategori === 'KANTOR'
+                ? '🏢'
+                : item.kategori === 'EX. GARDU INDUK'
+                ? '🏚️'
+                : '📍'
+            }
+          </div>
+          <!-- Pin Pointer Arrow -->
+          <div class="w-2.5 h-2.5 -mt-1.5 rotate-45" style="background-color: ${pinColor};"></div>
         </div>
-        <div class="absolute -bottom-1 w-2.5 h-2.5 rotate-45" style="background-color: ${pinColor};"></div>
-        <span class="absolute -top-2.5 bg-slate-900 text-white font-bold text-[8px] px-1 py-0.2 rounded shadow-xs border border-white/40 whitespace-nowrap">
-          ${badgeText}
-        </span>
+
+        <!-- Tagging Lokasi Nama Aset CBM Ringkas -->
+        ${
+          showCbmTag
+            ? `
+          <div class="mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold shadow-md border whitespace-nowrap tracking-tight transition-all flex items-center gap-1 max-w-[136px] ${
+            isSelected
+              ? 'bg-amber-400 text-slate-950 border-amber-500 ring-2 ring-amber-300 font-extrabold shadow-lg'
+              : 'bg-slate-900/90 text-white border-slate-700/80 backdrop-blur-xs'
+          }">
+            <span class="text-[7.5px] font-mono font-black px-1 py-0.2 rounded ${
+              isSelected ? 'bg-amber-700 text-white' : 'bg-emerald-600 text-white'
+            } flex-shrink-0">
+              CBM
+            </span>
+            <span class="truncate font-semibold">${conciseCbm}</span>
+          </div>
+        `
+            : ''
+        }
       </div>
     `;
 
     return L.divIcon({
       className: 'custom-leaflet-marker',
       html,
-      iconSize: [38, 48],
-      iconAnchor: [19, 44],
-      popupAnchor: [0, -42],
+      iconSize: [140, showCbmTag ? 64 : 46],
+      iconAnchor: [70, 36],
+      popupAnchor: [0, -38],
     });
   };
 
@@ -302,7 +397,8 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
 
     filteredAssets.forEach((item) => {
       const isSelected = item.id === selectedAssetId;
-      const icon = createMarkerIcon(item, isSelected);
+      const conciseCbm = item.conciseCbm || getConciseCbmName(item);
+      const icon = createMarkerIcon(item, isSelected, showCbmLabels);
       const marker = L.marker([item.parsedLat, item.parsedLng], { icon });
 
       // Popup HTML
@@ -312,10 +408,17 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
         : `<span style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 9999px; font-weight: bold; font-size: 10px;">PROSES BPN: TAHAPAN ${item.tahapan}</span>`;
 
       const popupContent = `
-        <div style="font-family: 'Plus Jakarta Sans', sans-serif; min-width: 250px; max-width: 310px; color: #1e293b; padding: 4px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
-            <div style="font-weight: 800; font-size: 13px; color: #0f172a;">${item.asetProperti || item.asetLapangan}${item.asetCbm && item.asetCbm !== '-' ? ` [${item.asetCbm}]` : ''}</div>
+        <div style="font-family: 'Plus Jakarta Sans', sans-serif; min-width: 250px; max-width: 320px; color: #1e293b; padding: 4px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px;">
+            <div style="font-weight: 800; font-size: 13px; color: #0f172a;">${item.asetProperti || item.asetLapangan}</div>
             ${statusBadge}
+          </div>
+
+          <!-- Tagging Lokasi CBM Ringkas -->
+          <div style="display: inline-flex; align-items: center; gap: 6px; background-color: #ecfdf5; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 6px; margin-bottom: 8px;">
+            <span style="background-color: #047857; color: white; font-family: monospace; font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px;">CBM</span>
+            <span style="font-weight: 800; font-size: 11px; color: #065f46;">${conciseCbm}</span>
+            ${item.asetCbm && item.asetCbm !== '-' && item.asetCbm !== conciseCbm ? `<span style="font-size: 10px; color: #64748b; font-family: monospace;">(${item.asetCbm})</span>` : ''}
           </div>
 
           <div style="font-size: 11px; color: #475569; margin-bottom: 8px; font-weight: 600;">
@@ -323,6 +426,7 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
           </div>
 
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; font-size: 11px; margin-bottom: 10px; display: grid; grid-template-columns: 1fr; gap: 4px;">
+            <div><strong>Tag Aset CBM:</strong> <span style="font-family: monospace; font-weight: bold; color: #0f172a; background-color: #f1f5f9; padding: 1px 5px; border-radius: 4px;">${conciseCbm}</span></div>
             <div><strong>Wilayah:</strong> Desa ${item.desa || '-'}, Kec. ${item.kecamatan || '-'}</div>
             <div><strong>Kantah:</strong> ${item.bpn} (${item.ultg})</div>
             <div><strong>Luas Tanah:</strong> <span style="font-weight: bold; color: #047857;">${(item.luas || 0).toLocaleString('id-ID')} m²</span> (Jml Persil: ${item.persil || '-'})</div>
@@ -375,7 +479,7 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
     if (filteredAssets.length > 0 && !selectedAssetId) {
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
-  }, [filteredAssets, selectedAssetId]);
+  }, [filteredAssets, selectedAssetId, showCbmLabels]);
 
   // Delegated event listener for "Lihat Detail Persil" button in Leaflet Popups
   useEffect(() => {
@@ -760,11 +864,13 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
                             <span className="font-bold text-xs text-slate-900 truncate">
                               {item.asetProperti || item.asetLapangan}
                             </span>
-                            {item.asetCbm && item.asetCbm !== '-' && (
-                              <span className="text-[9px] font-mono font-semibold text-slate-600 bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
-                                {item.asetCbm}
-                              </span>
-                            )}
+                            <span
+                              className="text-[9px] font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex-shrink-0 flex items-center gap-1"
+                              title={`Tagging CBM: ${item.conciseCbm}${item.asetCbm && item.asetCbm !== '-' ? ` (${item.asetCbm})` : ''}`}
+                            >
+                              <span className="text-[7.5px] bg-emerald-600 text-white px-0.5 rounded font-black">CBM</span>
+                              <span>{item.conciseCbm.replace(/^CBM\s*/i, '')}</span>
+                            </span>
                           </div>
                           <div className="text-[10px] text-slate-500 truncate mt-0.5">
                             {item.penghantar}
@@ -818,7 +924,7 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
             <div className="mt-3 pt-3 border-t border-slate-200 text-[10px] text-slate-500 space-y-1.5">
               <div className="font-bold text-slate-700 flex items-center gap-1">
                 <Info className="w-3 h-3 text-slate-400" />
-                Legenda Simbol Peta
+                Legenda Simbol & Taging Peta
               </div>
               <div className="grid grid-cols-2 gap-1 text-[9px]">
                 <div className="flex items-center gap-1.5">
@@ -837,6 +943,10 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
                   <span className="w-2.5 h-2.5 rounded-full ring-2 ring-rose-500 bg-white"></span>
                   <span>Ada Kendala</span>
                 </div>
+              </div>
+              <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100 text-[9px] text-slate-600 font-medium">
+                <span className="text-[7.5px] bg-slate-900 text-white font-mono font-bold px-1 rounded">CBM</span>
+                <span>Tagging Pin: Nama Aset CBM Ringkas (T.xx / GI / Kode)</span>
               </div>
             </div>
           </div>
@@ -875,8 +985,25 @@ export const AllAssetsMapView: React.FC<AllAssetsMapViewProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="text-[11px] text-slate-300 font-medium hidden sm:inline">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Toggle Taging Nama Aset CBM Ringkas */}
+              <button
+                id="btn-toggle-cbm-labels"
+                type="button"
+                onClick={() => setShowCbmLabels(!showCbmLabels)}
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                  showCbmLabels
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-2xs'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+                }`}
+                title="Tampilkan atau sembunyikan label nama aset CBM ringkas pada pin peta"
+              >
+                <Tag className="w-3.5 h-3.5 text-emerald-300" />
+                <span className="hidden sm:inline">Tag CBM: {showCbmLabels ? 'Aktif' : 'Nonaktif'}</span>
+                <span className="sm:hidden">CBM: {showCbmLabels ? 'ON' : 'OFF'}</span>
+              </button>
+
+              <div className="text-[11px] text-slate-300 font-medium hidden md:inline">
                 Layer:{' '}
                 <strong className="text-emerald-300">{TILE_LAYERS[activeLayer].name}</strong>
               </div>

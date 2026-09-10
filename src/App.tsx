@@ -1039,6 +1039,9 @@ export default function App() {
         onClose={() => setIsAddModalOpen(false)}
         onAddAsset={handleAddNewAsset}
         picOfficers={picOfficers}
+        googleUser={googleUser}
+        googleAccessToken={googleAccessToken}
+        onGoogleAuthSuccess={handleGoogleAuthSuccess}
       />
 
       {/* Excel Bulk Import Modal */}
@@ -1055,6 +1058,9 @@ export default function App() {
         onClose={() => setEditingAsset(null)}
         onSaveAsset={handleSaveEditedAsset}
         picOfficers={picOfficers}
+        googleUser={googleUser}
+        googleAccessToken={googleAccessToken}
+        onGoogleAuthSuccess={handleGoogleAuthSuccess}
       />
 
       {/* Delete Confirmation Modal */}
